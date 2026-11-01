@@ -19,7 +19,7 @@ Each consumer proposes the shared flake lock bump in its **own** PR, runs fixtur
 
 ## Lock update automation
 
-A consumer-owned scheduled/dispatch workflow calls `.github/workflows/lock-updates.yml@<immutable-full-commit>` **after a maintainer with workflow-write permission moves `workflow-templates/lock-updates.yml` to that path**. The current automation App cannot write `.github/workflows/`, so this draft does not yet offer a callable workflow or active CI. Move `workflow-templates/ci.yml` to `.github/workflows/ci.yml` as well before marking adoption complete. The templates are included for review; the paths are GitHub requirements, not optional. with trusted `update-command`, `test-command` and exact `required-checks`; call the workflow with `contents: read` and App secrets `APP_ID` and `APP_PRIVATE_KEY` scoped to that consumer's Actions repository. Example caller:
+A consumer-owned scheduled/dispatch workflow calls `.github/workflows/lock-updates.yml@<immutable-full-commit>` with trusted `update-command`, `test-command` and exact `required-checks`; call the workflow with `contents: read` and App secrets `APP_ID` and `APP_PRIVATE_KEY` scoped to that consumer's Actions repository. Example caller:
 
 ```yaml
 name: Dependency updates

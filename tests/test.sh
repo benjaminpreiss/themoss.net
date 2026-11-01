@@ -74,8 +74,11 @@ git -C "$tmp/repo" push -q --force origin HEAD:main
 bash "$cli" update "$tmp/repo" main "$tmp/machine" test "$tmp/state" >/dev/null 2>&1 && { echo 'divergence passed' >&2; exit 1; }
 [[ $(<"$tmp/state/revision") == "$second" ]]
 # Both consumer policies parse, and the candidate relay's timer starts disabled.
-for file in "$root"/examples/*.nix "$root"/toolkit/update.nix; do nix-instantiate --parse "$file" >/dev/null; done
+if command -v nix-instantiate >/dev/null; then
+  for file in "$root"/examples/*.nix "$root"/toolkit/{update,audit}.nix; do nix-instantiate --parse "$file" >/dev/null; done
+fi
 grep -q 'timer = false' "$root/examples/agentic.nix"
 grep -q 'timer = false' "$root/examples/thepeer.nix"
 ! grep -q 'update --repo' "$root/toolkit/update.nix" || { echo 'module/CLI argument mismatch' >&2; exit 1; }
+bash "$root/tests/audit.sh"
 echo 'Bash fixture checks passed'
