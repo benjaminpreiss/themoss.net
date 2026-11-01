@@ -14,7 +14,17 @@ systemctl start themoss-update.service
 
 The update locks attempts, fetches the reviewed branch, requires the new commit to descend from the known-good revision, stages only committed source with the private machine files, and builds **before** `nixos-rebuild switch`. A failed fetch or build cannot reach switch; a failed switch may have partially activated services. State advances only on successful switch. Updates never call Disko.
 
-For a candidate/branch install, keep `services.themossUpdate.timer = false` and **do not manually start the service against old `main`**. Enable the timer only after merge and first-boot verification. Agentic can leave it off and update manually; the relay may opt in after validation.
+For a candidate/branch install, keep `services.themossUpdate.timer = false` and **do not manually start the service against old `main`**. Bootstrap also disables any existing timer. Agentic can leave it off and update manually; the relay may opt in after validation.
+
+### Candidate-to-main transition
+
+After first-boot verification and merge to the reviewed branch, review the fetched branch's NixOS configuration and run explicitly from the operator's pinned toolkit checkout:
+
+```bash
+bash toolkit/deploy.sh transition root@HOST /root/consumer main /root/private-machine HOST_OUTPUT /var/lib/themoss
+```
+
+This uses strict SSH host-key checking and the same update fetch → ancestry check → build → switch → known-good sequence; **no Disko, reset or silent rebaseline**. Only enable the timer in a reviewed consumer NixOS configuration after candidate validation. A squash/rebase that loses ancestry fails closed: do not edit `revision` to make it pass. A separate reviewed, non-destructive rebaseline procedure would need to prove the running configuration and new baseline match before writing state; this toolkit does not implement one.
 
 ### Recover from a bad update
 

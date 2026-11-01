@@ -5,7 +5,7 @@ set -euo pipefail
 export LC_ALL=C
 umask 077
 fail() { echo "themoss: $*" >&2; exit 1; }
-usage() { fail 'usage: deploy.sh discover TARGET DISK RECORD | preflight RECORD | install RECORD REPO REV MACHINE_DIR HOST | update REPO BRANCH MACHINE_DIR HOST STATE_DIR'; }
+usage() { fail 'usage: deploy.sh discover TARGET DISK RECORD | preflight RECORD | install RECORD REPO REV MACHINE_DIR HOST BRANCH | bootstrap TARGET REPO REV MACHINE_DIR REMOTE_CHECKOUT REMOTE_MACHINE REMOTE_STATE BRANCH | update REPO BRANCH MACHINE_DIR HOST STATE_DIR | transition TARGET REMOTE_CHECKOUT BRANCH REMOTE_MACHINE HOST REMOTE_STATE'; }
 [[ $# -ge 1 ]] || usage
 op=$1; shift
 
@@ -85,9 +85,11 @@ case $op in
     check "$1"
     ;;
   install)
-    [[ $# == 5 ]] || usage
-    record=$1 repo=$2 rev=$3 machine=$4 host=$5
+    [[ $# == 6 ]] || usage
+    record=$1 repo=$2 rev=$3 machine=$4 host=$5 branch=$6
     [[ $rev =~ ^[0-9a-f]{40}$ && $(git -C "$repo" cat-file -t "$rev") == commit ]] || fail 'install requires a pinned full commit'
+    [[ $branch =~ ^[a-zA-Z0-9_/-]+$ && $branch != *..* ]] || fail 'invalid branch'
+    [[ $(git -C "$repo" ls-remote --exit-code origin "refs/heads/$branch" | cut -f1) == "$rev" ]] || fail 'install commit must be pushed as exact branch head'
     check "$record"
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
     stage "$repo" "$rev" "$machine" "$tmp"
@@ -97,6 +99,46 @@ case $op in
     [[ $answer == "ERASE $disk" ]] || fail 'confirmation denied'
     check "$record" # target may have changed while building
     nixos-anywhere --flake "$tmp#$host" --target-host "$(jq -r .target "$record")"
+    ;;
+  bootstrap)
+    [[ $# == 8 ]] || usage
+    target=$1 repo=$2 rev=$3 machine=$4 checkout=$5 remote_machine=$6 state=$7 branch=$8
+    [[ $target == root@* && $target =~ ^root@[a-zA-Z0-9_.:-]+$ ]] || fail 'bootstrap requires root SSH target'
+    for path in "$checkout" "$remote_machine" "$state"; do
+      [[ $path =~ ^/[a-zA-Z0-9_./-]+$ && $path != *..* ]] || fail 'unsafe remote path'
+    done
+    [[ $rev =~ ^[0-9a-f]{40}$ && $(git -C "$repo" cat-file -t "$rev") == commit ]] || fail 'invalid installed commit'
+    [[ $branch =~ ^[a-zA-Z0-9_/-]+$ && $branch != *..* ]] || fail 'invalid branch'
+    [[ -f $machine/machine.nix && ! -L $machine/machine.nix && ! -L $machine ]] || fail 'missing private machine.nix'
+    [[ $(stat -c %a "$machine/machine.nix") == 600 ]] || fail 'machine.nix must be mode 600'
+    url=$(git -C "$repo" remote get-url origin)
+    [[ -n $url ]] || fail 'missing origin'
+    helper=$(dirname "${BASH_SOURCE[0]}")/bootstrap-remote.sh
+    remote_args=''
+    for arg in "$url" "$rev" "$checkout" "$remote_machine" "$state" "$branch"; do
+      printf -v quoted '%q' "$arg"
+      remote_args+=" $quoted"
+    done
+    ssh -o StrictHostKeyChecking=yes "$target" "bash -s -- prepare$remote_args" <"$helper"
+    files=(machine.nix)
+    if [[ -e $machine/facter.json || -L $machine/facter.json ]]; then
+      [[ -f $machine/facter.json && ! -L $machine/facter.json ]] || fail 'invalid facter report'
+      files+=(facter.json)
+    fi
+    tar -C "$machine" -cf - "${files[@]}" | ssh -o StrictHostKeyChecking=yes "$target" "tar -xf - -C $state/incoming --no-same-owner"
+    ssh -o StrictHostKeyChecking=yes "$target" "bash -s -- finish$remote_args" <"$helper"
+    ;;
+  transition)
+    [[ $# == 6 ]] || usage
+    target=$1 repo=$2 branch=$3 machine=$4 host=$5 state=$6
+    [[ $target =~ ^root@[a-zA-Z0-9_.:-]+$ ]] || fail 'transition requires verified root SSH target'
+    for path in "$repo" "$machine" "$state"; do
+      [[ $path =~ ^/[a-zA-Z0-9_./-]+$ && $path != *..* ]] || fail 'unsafe remote path'
+    done
+    [[ $branch =~ ^[a-zA-Z0-9_/-]+$ && $branch != *..* && $host =~ ^[a-zA-Z0-9_-]+$ ]] || fail 'invalid branch or host'
+    # Explicit non-destructive switch to the reviewed branch. The updater's
+    # ancestry check rejects a rewritten main; never rebaseline implicitly.
+    exec ssh -o StrictHostKeyChecking=yes "$target" "bash -s -- update $repo $branch $machine $host $state" <"${BASH_SOURCE[0]}"
     ;;
   update)
     [[ $# == 5 ]] || usage

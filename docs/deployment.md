@@ -1,8 +1,8 @@
 # Deployment toolkit (pilot)
 
-This toolkit shares **install and update mechanics**, not machine configuration or release decisions. It has not been validated on a real server. Start with a disposable VM; do not use it to migrate a production host.
+This toolkit shares **install, bootstrap and update mechanics**, not machine configuration or release decisions. It has not been validated on a real server. Start with a disposable VM; do not use it to migrate a production host.
 
-- [`toolkit/deploy.sh`](../toolkit/deploy.sh) discovers, checks, installs or updates one machine.
+- [`toolkit/deploy.sh`](../toolkit/deploy.sh) discovers, checks, installs, bootstraps or updates one machine.
 - The flake exports `nixosModules.update`, an optional target-side update service and timer.
 - [The App audit](app-permissions.md) and reusable workflow help consumers propose dependency updates through PRs.
 
@@ -30,16 +30,28 @@ On the deployment computer, use the pinned toolkit checkout with Bash, SSH, `jq`
 ```bash
 bash toolkit/deploy.sh discover root@HOST /dev/WHOLE_DISK PRIVATE_RECORD.json
 bash toolkit/deploy.sh preflight PRIVATE_RECORD.json
-bash toolkit/deploy.sh install PRIVATE_RECORD.json CONSUMER_REPO FULL_COMMIT PRIVATE_MACHINE_DIR HOST_OUTPUT
+bash toolkit/deploy.sh install PRIVATE_RECORD.json CONSUMER_REPO FULL_COMMIT PRIVATE_MACHINE_DIR HOST_OUTPUT PUSHED_BRANCH
 ```
 
-Discovery records architecture, boot mode, NIC/MAC and the chosen whole disk in a new mode-0600 file; it **does not** decide which disk is safe. The consumer generates `PRIVATE_MACHINE_DIR/machine.nix` (and optionally `facter.json`) and owns the Disko configuration. Review that configuration against the recorded disk and the **actual target** before install. Preflight re-probes the target. Install stages committed consumer source plus the private machine files, builds the NixOS output, re-probes, and requires you to type `ERASE /dev/WHOLE_DISK` before invoking `nixos-anywhere`. **Only install can invoke Disko.** The CLI does not upload credentials or bootstrap target-side private files for you.
+Discovery records architecture, boot mode, NIC/MAC and the chosen whole disk in a new mode-0600 file; it **does not** decide which disk is safe. The consumer generates `PRIVATE_MACHINE_DIR/machine.nix` (and optionally `facter.json`) and owns the Disko configuration. Review that configuration against the recorded disk and the **actual target** before install. Preflight re-probes the target. Install requires `FULL_COMMIT` to be the exact pushed head of `PUSHED_BRANCH`, stages committed consumer source plus the private machine files, builds the NixOS output, re-probes, and requires you to type `ERASE /dev/WHOLE_DISK` before invoking `nixos-anywhere`. **Only install can invoke Disko.** Never use install to repair an existing machine.
 
 Back up the record and generated files encrypted off-server. Never restore another machine's record onto this one.
 
+## First-boot bootstrap
+
+Verify the **new** SSH host key out of band at the provider console before putting it in your operator's `known_hosts`. The rescue host key is not the installed host key. No `accept-new` or automatic trust is used. After the first boot, from the deployment computer with the same pinned toolkit and reviewed private directory (mode 0600 `machine.nix`):
+
+```bash
+bash toolkit/deploy.sh bootstrap root@HOST CONSUMER_REPO FULL_COMMIT PRIVATE_MACHINE_DIR /root/consumer /root/private-machine /var/lib/themoss PUSHED_BRANCH
+```
+
+This copies **only** `machine.nix` and optional `facter.json` via strict-key SSH; neither private keys nor tokens are accepted as inputs. They must be credential-free because install staging places them in the Nix store. The target fetches the consumer's configured `origin` and checks out exactly `FULL_COMMIT` detached, requiring it to remain an ancestor of the pushed branch. It writes `/var/lib/themoss/revision` last. The root-only checkout, private files and state reject mismatching existing state; an interrupted upload/clone can be retried with identical arguments. Keep paths separate and root-owned, and protect off-server backups. Bootstrap disables the update timer; a candidate must **also** set `services.themossUpdate.timer = false` in its NixOS configuration. Bootstrap cannot reconfigure a running host or erase a disk.
+
+After validating the candidate and merging to the reviewed branch, use the [explicit transition](updates.md#candidate-to-main-transition). Do not point a candidate's timer at old `main`.
+
 ## After installation
 
-Use the [update guide](updates.md) to switch a reviewed revision, recover from a bad update, or configure scheduled lockfile PRs. Do not rerun the disk installer to repair an existing machine.
+Use the [update guide](updates.md) to switch a reviewed revision, recover from a bad update, or configure scheduled lockfile PRs.
 
 ## Test without a server
 
@@ -47,7 +59,4 @@ CI runs `bash tests/test.sh` from [`.github/workflows/ci.yml`](../.github/workfl
 
 ## Adoption PRs to propose—not part of this toolkit PR
 
-- **agentic:** retain its modules, `nixos/flake.lock`, `.deployment/generated/`, credential handling and `scripts/stage.sh` source allowlist until an equivalent is tested. Map its prepare/preflight/deploy scripts to discovery, preflight and install; map `scripts/update/apply.sh` to manual update. Keep unattended upgrades disabled. Test a disposable VM; do not switch an existing host here.
-- **thepeer.stream:** retain its relay/saorsa modules, Disko, flake/Cargo pins and generated machine config. Map deployment prepare/preflight/install to the shared steps and target `update.sh` to the optional service. Test PR #4 on a real server before enabling the timer. A branch install must never fetch old `main` during validation.
-
-Each consumer reviews and tests its own pinned toolkit bump independently. Neither consumer repo nor any deployed host is changed by this PR.
+See the [consumer migration guide](migration.md) for relay PR #4 and agentic issue #30. Each consumer reviews and tests its own pinned toolkit bump independently. Neither consumer repo nor any deployed host is changed by this PR.
