@@ -77,4 +77,5 @@ bash "$cli" update "$tmp/repo" main "$tmp/machine" test "$tmp/state" >/dev/null 
 for file in "$root"/examples/*.nix "$root"/toolkit/update.nix; do nix-instantiate --parse "$file" >/dev/null; done
 grep -q 'timer = false' "$root/examples/agentic.nix"
 grep -q 'timer = false' "$root/examples/thepeer.nix"
+! grep -q 'update --repo' "$root/toolkit/update.nix" || { echo 'module/CLI argument mismatch' >&2; exit 1; }
 echo 'Bash fixture checks passed'

@@ -15,11 +15,11 @@ in {
   config = lib.mkIf cfg.enable {
     systemd.services.themoss-update = {
       description = "Build then switch reviewed NixOS revision";
+      path = with pkgs; [ git nix openssh nixos-rebuild jq gnutar util-linux coreutils findutils ];
       serviceConfig = {
         Type = "oneshot";
         User = "root";
-        ExecStart = "${pkgs.bash}/bin/bash ${./deploy.sh} update --repo ${lib.escapeShellArg cfg.repository} --branch ${lib.escapeShellArg cfg.branch} --machine ${lib.escapeShellArg cfg.machine} --host ${lib.escapeShellArg cfg.host} --state ${lib.escapeShellArg cfg.state}";
-        Path = with pkgs; [ git nix openssh nixos-rebuild jq gnutar util-linux coreutils findutils ];
+        ExecStart = "${pkgs.bash}/bin/bash ${./deploy.sh} update ${lib.escapeShellArg cfg.repository} ${lib.escapeShellArg cfg.branch} ${lib.escapeShellArg cfg.machine} ${lib.escapeShellArg cfg.host} ${lib.escapeShellArg cfg.state}";
       };
     };
     systemd.timers.themoss-update = lib.mkIf cfg.timer {
