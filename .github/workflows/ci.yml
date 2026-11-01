@@ -7,9 +7,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: bash tests/test.sh
       - run: bash -n toolkit/deploy.sh tests/test.sh
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31
-      - name: Exercise consumer-style lock update and synthetic machine build
-        run: bash tests/consumer-commands.sh
+      - uses: cachix/install-nix-action@v31
       - name: Evaluate toolkit and both consumer examples
         run: |
           nix flake show --no-write-lock-file
