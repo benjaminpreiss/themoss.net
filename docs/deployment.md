@@ -19,7 +19,7 @@ Each consumer proposes the shared flake lock bump in its **own** PR, runs fixtur
 
 ## Lock update automation
 
-A consumer-owned scheduled/dispatch workflow calls `.github/workflows/lock-updates.yml@<immutable-full-commit>` with trusted `update-command`, `test-command` and exact `required-checks`; call the workflow with `contents: read` and App secrets `APP_ID` and `APP_PRIVATE_KEY` scoped to that consumer's Actions repository. Example caller:
+A consumer-owned scheduled/dispatch workflow calls `.github/workflows/lock-updates.yml@<immutable-full-commit>` with trusted `update-command`, `test-command` and exact `required-checks`. The current workflow must first be replaced by [`workflow-templates/lock-updates.yml`](../workflow-templates/lock-updates.yml) by a maintainer with workflow-write permission: that version audits the App's permissions and complete installation repository scope **before** proposing updates (see [App permission audit](app-permissions.md)); call the workflow with `contents: read` and App secrets `APP_ID` and `APP_PRIVATE_KEY` scoped to that consumer's Actions repository. Example caller:
 
 ```yaml
 name: Dependency updates
@@ -34,6 +34,8 @@ jobs:
       update-command: 'nix flake update && cargo update --locked'
       test-command: 'bash tests/test-deployment.sh && nix build .#nixosConfigurations.HOST.config.system.build.toplevel'
       required-checks: 'Build and test / OS,Build and test / Application'
+      toolkit-revision: 'REPLACE_WITH_SAME_FULL_COMMIT_AS_USES'
+      app-policy-file: '.github/app-permissions.json'
     secrets:
       APP_ID: ${{ secrets.UPDATE_APP_ID }}
       APP_PRIVATE_KEY: ${{ secrets.UPDATE_APP_PRIVATE_KEY }}

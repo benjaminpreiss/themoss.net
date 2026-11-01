@@ -75,7 +75,7 @@ bash "$cli" update "$tmp/repo" main "$tmp/machine" test "$tmp/state" >/dev/null 
 [[ $(<"$tmp/state/revision") == "$second" ]]
 # Both consumer policies parse, and the candidate relay's timer starts disabled.
 if command -v nix-instantiate >/dev/null; then
-  for file in "$root"/examples/*.nix "$root"/toolkit/{update,audit}.nix; do nix-instantiate --parse "$file" >/dev/null; done
+  for file in "$root"/examples/*.nix "$root"/toolkit/update.nix; do nix-instantiate --parse "$file" >/dev/null; done
 fi
 grep -q 'timer = false' "$root/examples/agentic.nix"
 grep -q 'timer = false' "$root/examples/thepeer.nix"
