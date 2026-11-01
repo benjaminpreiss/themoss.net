@@ -1,18 +1,43 @@
-# Audit the lock-update App's permissions
+# Audit the lock-update App
 
-`toolkit/audit-app.sh APP_ID PEM_FILE POLICY_JSON OWNER/REPO` is a **read-only permission/scope check**, not a ruleset auditor or merge gate. It signs a short-lived JWT and reads `GET /app` (App permission grants), `GET /repos/OWNER/REPO/installation` (installation grants), mints an installation token (token grants), and paginates `GET /installation/repositories` to check the entire installation scope. All three permissions objects must equal the policy exactly; every accessible repository must be listed in the policy and vice versa. Any HTTP, schema, or pagination error fails the check. It never prints the key, JWT, token, or response bodies. Run `bash tests/audit.sh` for synthetic fixtures (App/installation/token drift and surprise repo).
+The dependency-update workflow uses an App to open PRs. Before doing so, it checks that the App has **exactly the permissions and repository access the consumer expects**. A mismatch stops the workflow.
 
-Keep a credential-free policy JSON **in each consumer repo**, e.g. `.github/app-permissions.json`:
+This is a permission audit—not a ruleset audit and not a guarantee that the App can act only from this workflow.
+
+## Set the expected access
+
+Commit `.github/app-permissions.json` in the **consumer** repository:
 
 ```json
 {
-  "permissions": { "contents": "write", "pull_requests": "write", "metadata": "read" },
-  "repositories": [ "benjaminpreiss/thepeer.stream" ]
+  "permissions": {
+    "contents": "write",
+    "pull_requests": "write",
+    "metadata": "read"
+  },
+  "repositories": ["benjaminpreiss/thepeer.stream"]
 }
 ```
 
-List every permission actually reported by GitHub (including implicit `metadata`), and every repository on that installation. For separate consumers use separate installations/policies; a shared installation requires each consumer policy to explicitly list the same complete set. Audit before dependency updates run; a changed installation or App registration must be reviewed and the policy updated deliberately. Limit the **workflow's minted token** to the caller repository and Contents/PR write even when the installation contains more repos. The script also checks the full App and installation grants: down-scoping a token cannot hide excessive permissions on the App or its private key.
+List **every** permission GitHub grants, including `metadata`, and **every** repository accessible to that installation. The example is not a universal policy: edit it to match the actual App. A shared installation needs the same complete repository list in each consumer's policy. Prefer a separate installation per consumer when possible.
 
-**Actions integration:** `workflow-templates/lock-updates.yml` shows the audit before App token creation. A maintainer with workflow-write permission must replace `.github/workflows/lock-updates.yml` with that template; the coding App cannot push workflow changes. The caller passes a full immutable toolkit commit as `toolkit-revision` matching the `uses: ...@SHA` reference, plus its policy path and App secrets. The template checks out the pinned toolkit to read the audit script, and checks out the consumer separately; it does **not** fetch scripts with `curl`. The key exists only as a caller Actions secret (briefly materialized in a mode-0600 temp file for OpenSSL), never on a target host or in Nix/store. Protect the workflow and policy from unreviewed edits. App secrets are not literally exclusive to this one workflow: any authorized workflow able to read the same repository secret can use them. An attacker with the private key can mint a different token outside this workflow. Reduce that risk with narrow installation scope, branch rules without App bypass, review of workflow changes, secret access controls, alerts and key rotation. Required-check branch protection in the lock-update workflow is a separate safety requirement; it does not constrain token provenance.
+To change the App's access, review the change and its policy update together. Do not change the policy just to silence an unexpected audit failure.
 
-If a consumer's App key already lives on a server for unrelated reasons, the script can run there with the same policy and alerting, but **do not move an Actions-only private key onto a server just to run this audit**. An administrator must still independently review actual bypass rights/branch protection; a permission audit cannot prove an App may merge only workflow-created PRs.
+## What the workflow checks
+
+[`.github/workflows/lock-updates.yml`](../.github/workflows/lock-updates.yml) runs the audit **before** updating dependencies. The caller supplies the policy path, App secrets and an immutable toolkit revision; see the [caller example](deployment.md#dependency-update-workflow).
+
+The read-only [`audit-app.sh`](../toolkit/audit-app.sh) compares the policy against:
+
+1. The permissions on the App registration, installation and newly issued installation token. **All three must match exactly.** A restricted token cannot conceal excess permissions on the App itself.
+2. The complete, paginated list of repositories accessible to that installation. No extra or missing repositories are accepted.
+
+Missing data, an API error or a mismatch fails the audit. The workflow then creates a token limited to the **caller repository** with Contents and Pull requests write access. It never copies the App key to a deployment target. The key comes from the consumer's Actions secret; the audit briefly puts it in a mode-0600 runner file for OpenSSL and removes that file when the step ends.
+
+Run the credential-free fixtures with `bash tests/audit.sh`. They cover App, installation and token permission drift, plus an unexpected repository. **They do not verify GitHub's live API or a consumer's real App**; perform an initial `workflow_dispatch` and inspect its result before enabling a schedule.
+
+## What this does not protect
+
+GitHub permissions are **not workflow-scoped**. Another workflow allowed to read the same secret—or anyone with the private key—can mint a token outside this workflow. Protect workflow and policy changes, restrict installation scope, monitor failures and rotate a compromised key. Branch protection and required checks are separate merge safeguards, not proof of where a token came from. An administrator should independently inspect App bypass rights.
+
+The script can also run on a server **if the key already belongs there**, but do not move an Actions-only key onto a server just to audit it. The lock-update workflow performs its own audit on each run.
