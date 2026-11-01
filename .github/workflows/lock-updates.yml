@@ -15,6 +15,14 @@ on:
         description: 'Comma-separated exact required check names, also configured in branch protection'
         type: string
         required: true
+      toolkit-revision:
+        description: 'Full immutable themoss commit; must match this workflow_call uses ref'
+        type: string
+        required: true
+      app-policy-file:
+        description: 'Committed, credential-free App permission/scope policy in caller repo'
+        type: string
+        required: true
     secrets:
       APP_ID:
         required: true
@@ -26,15 +34,41 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Validate immutable toolkit ref
+        env:
+          TOOLKIT_REVISION: ${{ inputs.toolkit-revision }}
+        run: |
+          [[ $TOOLKIT_REVISION =~ ^[0-9a-f]{40}$ ]] || exit 1
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: benjaminpreiss/themoss.net
+          ref: ${{ inputs.toolkit-revision }}
+          path: .themoss-audit
+          persist-credentials: false
+      - name: Audit full App and installation scope before minting workflow token
+        env:
+          APP_ID: ${{ secrets.APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+          APP_POLICY_FILE: ${{ inputs.app-policy-file }}
+        run: |
+          set -euo pipefail
+          key=$(mktemp)
+          trap 'rm -f "$key"' EXIT
+          chmod 600 "$key"
+          printf '%s' "$APP_PRIVATE_KEY" > "$key"
+          bash .themoss-audit/toolkit/audit-app.sh "$APP_ID" "$key" "$APP_POLICY_FILE" "$GITHUB_REPOSITORY"
       - uses: actions/create-github-app-token@v2
         id: token
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
-      - uses: actions/checkout@v4
-        with:
-          token: ${{ steps.token.outputs.token }}
-          persist-credentials: false
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
       - name: Update committed locks, then test before proposing
         env:
           UPDATE_COMMAND: ${{ inputs.update-command }}
