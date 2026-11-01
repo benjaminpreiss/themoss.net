@@ -18,7 +18,11 @@ while (($#)); do
 done
 [[ -n $output ]]
 case $url in
-  */access_tokens) printf '%s' '{"token":"synthetic","permissions":{"metadata":"read","pull_requests":"read","contents":"write"}}' >"$output"; echo 201 ;;
+  */access_tokens)
+    if [[ $AUDIT_SCENARIO == excess-permission ]]; then
+      printf '%s' '{"token":"synthetic","permissions":{"metadata":"read","pull_requests":"write","contents":"write"}}' >"$output"
+    else printf '%s' '{"token":"synthetic","permissions":{"metadata":"read","pull_requests":"read","contents":"write"}}' >"$output"; fi
+    echo 201 ;;
   */installation/repositories*)
     if [[ $AUDIT_SCENARIO == extra-repo ]]; then printf '%s' '{"repositories":[{"full_name":"owner/agentic"},{"full_name":"owner/relay"},{"full_name":"owner/unknown"}]}' >"$output";
     else printf '%s' '{"repositories":[{"full_name":"owner/agentic"},{"full_name":"owner/relay"}]}' >"$output"; fi
@@ -42,7 +46,7 @@ EOF
 chmod +x "$tmp/bin/curl"
 check() { bash "$root/toolkit/audit-app.sh" 123 321 "$tmp/key.pem" "$tmp/policy.json"; }
 check
-for AUDIT_SCENARIO in missing-check bypass extra-repo; do
+for AUDIT_SCENARIO in missing-check bypass extra-repo excess-permission; do
   export AUDIT_SCENARIO
   if check > /dev/null 2>&1; then echo "audit passed $AUDIT_SCENARIO" >&2; exit 1; fi
 done
