@@ -22,7 +22,7 @@ Stop the timer first: `systemctl disable --now themoss-update.timer`. Inspect `j
 
 ## Propose dependency updates through PRs
 
-The **consumer** owns the schedule and calls the pinned [reusable workflow](../.github/workflows/lock-updates.yml). It updates committed lockfiles, runs consumer-supplied tests, opens a PR and requests auto-merge only after checking the caller-named branch-protection requirements. It [audits the App permissions](app-permissions.md) first. A branch-protection API error or absent required check fails the auto-merge step; ruleset-only protection is not yet supported by that check.
+This repo hosts the [reusable workflow](../.github/workflows/lock-updates.yml), but **only consumer repos** install the update App, store its key in Actions secrets and own a schedule/dispatch caller. No update App credentials or installation belong in `themoss.net`. The consumer owns the schedule and calls the pinned workflow. It updates committed lockfiles, runs consumer-supplied tests, opens a PR and requests auto-merge only after checking the caller-named branch-protection requirements. It [audits the App permissions](app-permissions.md) first. A branch-protection API error or absent required check fails the auto-merge step; ruleset-only protection is not yet supported by that check.
 
 Example caller (replace the revision, commands and check names with tested consumer values):
 
@@ -46,4 +46,12 @@ jobs:
       APP_PRIVATE_KEY: ${{ secrets.UPDATE_APP_PRIVATE_KEY }}
 ```
 
-Use a dedicated App with **one installation on only the calling consumer repository**, Contents and Pull requests write, and no bypass. The permission audit fails if that App gains another installation or the installation gains another repo. [Prefilled registration form](https://github.com/settings/apps/new?name=themoss-consumer-lock-updates&description=Reviewed%20consumer%20lockfile%20PRs&url=https%3A%2F%2Fgithub.com%2Fbenjaminpreiss%2Fthemoss.net&public=false&webhook_active=false&request_oauth_on_install=false&contents=write&pull_requests=write): verify every setting yourself (private App, no webhook/OAuth, no additional write permissions). The App token triggers PR CI where the default `GITHUB_TOKEN` normally would not. Protect the consumer branch, enable auto-merge, and alert on failed/stalled workflows and host updates. **Auto-merging dependencies is a path to root-level OS code**; checks do not replace review, staged rollout or recovery.
+Give the update App Contents and Pull requests write access, **no bypass**, and install it on only the repos you intend to manage. The workflow checks its permissions and scopes its tokens to the calling repo; it does not audit the App's total reach across other installations. Review that scope separately.
+
+Here is the **complete prefilled GitHub App registration URL**. Inspect it before opening or submitting the form; it suggests a private App with webhooks and OAuth-on-install disabled, not a guarantee that those settings are enforced:
+
+```text
+https://github.com/settings/apps/new?name=themoss-consumer-lock-updates&description=Reviewed%20consumer%20lockfile%20PRs&url=https%3A%2F%2Fgithub.com%2Fbenjaminpreiss%2Fthemoss.net&public=false&webhook_active=false&request_oauth_on_install=false&contents=write&pull_requests=write
+```
+
+The App token triggers PR CI where the default `GITHUB_TOKEN` normally would not. Protect the consumer branch, enable auto-merge, and alert on failed/stalled workflows and host updates. **Auto-merging dependencies is a path to root-level OS code**; checks do not replace review, staged rollout or recovery.
