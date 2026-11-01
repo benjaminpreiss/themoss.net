@@ -1,0 +1,16 @@
+name: Toolkit checks
+on: [push, pull_request]
+jobs:
+  fixtures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/test.sh
+      - run: bash -n toolkit/deploy.sh tests/test.sh
+      - uses: cachix/install-nix-action@v31
+      - name: Evaluate toolkit and both consumer examples
+        run: |
+          nix flake show --no-write-lock-file
+          for file in toolkit/update.nix examples/agentic.nix examples/thepeer.nix; do
+            nix-instantiate --parse "$file" >/dev/null
+          done
