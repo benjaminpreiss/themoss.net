@@ -22,9 +22,9 @@ Stop the timer first: `systemctl disable --now themoss-update.timer`. Inspect `j
 
 ## Propose dependency updates through PRs
 
-This repo hosts the [reusable workflow](../.github/workflows/lock-updates.yml), but **only consumer repos** install the update App, store its key in Actions secrets and own a schedule/dispatch caller. No update App credentials or installation belong in `themoss.net`. The consumer owns the schedule and calls the pinned workflow. It updates committed lockfiles, runs consumer-supplied tests, opens a PR and requests auto-merge only after checking the caller-named branch-protection requirements. It [audits the App permissions](app-permissions.md) first. A branch-protection API error or absent required check fails the auto-merge step; ruleset-only protection is not yet supported by that check.
+This repo hosts the [reusable workflow](../.github/workflows/lock-updates.yml), but **only consumer repos** install the update App, store its key in Actions secrets and own a schedule/dispatch caller. No update App credentials or installation belong in `themoss.net`. The consumer owns the schedule and calls the pinned workflow. The reusable job installs Nix (pinned `cachix/install-nix-action` v31) before running consumer-supplied commands. It updates committed lockfiles, runs consumer-supplied tests, opens a PR and requests auto-merge only after checking the caller-named branch-protection requirements. It [audits the App permissions](app-permissions.md) first. A branch-protection API error or absent required check fails the auto-merge step; ruleset-only protection is not yet supported by that check.
 
-Example caller (replace the revision, commands and check names with tested consumer values):
+Example caller (replace the revision, commands and check names with tested consumer values). The commands run in the reusable job, **not** in preceding caller steps: install or pin any other required tools through committed consumer configuration or inside the commands. In particular, thepeer.stream needs **Cargo 1.95** for its lockfile; commit a `rust-toolchain.toml` selecting 1.95 (with rustup available) or invoke Cargo 1.95 from a pinned Nix dev shell. Do not rely on the runner's default Cargo version.
 
 ```yaml
 name: Dependency updates
@@ -45,6 +45,8 @@ jobs:
       APP_ID: ${{ secrets.UPDATE_APP_ID }}
       APP_PRIVATE_KEY: ${{ secrets.UPDATE_APP_PRIVATE_KEY }}
 ```
+
+CI runs `bash tests/consumer-commands.sh` with a credential-free synthetic machine flake: it executes `nix flake update` and builds `nixosConfigurations.synthetic.config.system.build.toplevel`. This checks the Nix command shape, not a real host closure, App authentication, scheduled caller execution or auto-merge. Test the pinned reusable workflow in each consumer with its actual locks, toolchains and App before relying on scheduled PRs; until the consumer pins a merged revision and passes that test, automated dependency PRs are **not operational**.
 
 Give the update App Contents and Pull requests write access, **no bypass**, and install it on only the repos you intend to manage. The workflow checks its permissions and scopes its tokens to the calling repo; it does not audit the App's total reach across other installations. Review that scope separately.
 
