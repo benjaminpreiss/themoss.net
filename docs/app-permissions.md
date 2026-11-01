@@ -24,7 +24,7 @@ Review changes to App access and this policy together. Don't change the policy m
 
 ## What the workflow checks
 
-[`.github/workflows/lock-updates.yml`](../.github/workflows/lock-updates.yml) runs the audit before dependency updates. The caller supplies the policy path, App secrets and an immutable toolkit revision; see the [caller example](deployment.md#dependency-update-workflow).
+[`.github/workflows/lock-updates.yml`](../.github/workflows/lock-updates.yml) runs the audit before dependency updates. The caller supplies the policy path, App secrets and an immutable toolkit revision; see the [caller example](updates.md#propose-dependency-updates-through-prs).
 
 The read-only [`audit-app.sh`](../toolkit/audit-app.sh) compares the policy to permissions reported for the **App registration**, the **installation** and a newly issued **installation token**. All three must match exactly; narrowing a token cannot conceal excess App permissions. It enumerates all App installations and requires exactly the caller's installation; then it paginates that installation's repositories and requires exactly `[GITHUB_REPOSITORY]`. Missing data, API errors and differences fail the audit.
 

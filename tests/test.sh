@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Toolkit fixture entry point: CI (.github/workflows/ci.yml) runs this from
+# the repo root; developers can run `bash tests/test.sh` locally. It mocks
+# SSH/Nix/installer commands, uses local Git, and calls tests/audit.sh.
+# No real target, GitHub credentials, or destructive operation is used.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd -P)
 tmp=$(mktemp -d "$root/.test-tmp.XXXXXXXX"); trap 'rm -rf "$tmp"' EXIT

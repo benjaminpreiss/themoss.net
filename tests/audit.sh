@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Credential-free App permission audit fixtures. Invoked by tests/test.sh
+# (and thus .github/workflows/ci.yml); also runnable as `bash tests/audit.sh`.
+# A mock curl responds to JWT/installation/repository queries; no GitHub call.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd -P)
 tmp=$(mktemp -d "$root/.audit-test.XXXXXXXX"); trap 'rm -rf "$tmp"' EXIT
