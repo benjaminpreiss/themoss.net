@@ -21,9 +21,9 @@ consumer repo + reviewed machine facts
 | `discover` / `preflight` | Record and recheck the target's disk and hardware. **No changes.** | None. |
 | `install` | Check the pushed commit, build it, ask for typed disk confirmation, then install it. **Erases the chosen disk.** | Build the consumer's NixOS output; `nixos-anywhere` installs it. |
 | `bootstrap` | After you verify the **new SSH host key**, put the installed commit and reviewed machine facts on the target. **No disk install.** | None; this prepares future builds. |
-| `update` / `transition` | Fetch a reviewed descendant commit, build, then switch the running system. **No disk install.** | Build the new NixOS output; `nixos-rebuild switch` activates it. |
+| `deploy` / `poll` / `transition` | Select a commit pin or a branch, check its tip, build and switch when eligible. **No disk install.** | Build the new NixOS output; `nixos-rebuild switch` activates it. |
 
-**Transition is an update with a reviewed new machine file.** The consumer can use that file to enable its updater timer after testing a candidate. Bootstrap does not turn timers on or off.
+**Transition explicitly changes a reviewed branch baseline and private machine file.** The timer is always active; bootstrap pins the installed commit so polling is a no-op until a reviewed branch selection.
 
 ## What makes a build reproducible?
 
@@ -31,7 +31,7 @@ The consumer pins this toolkit by an **immutable flake commit** and commits its 
 
 > 🔒 **Machine facts are not secrets.** Even when stored in root-only files, inputs to a Nix build can end up in the world-readable Nix store. Keep tokens, private keys and password hashes out of them.
 
-The Git checkout and the small state file live outside the Nix store. Bootstrap seeds the state file with the **installed commit**; later updates record the **last successfully switched commit**. Neither is a promise that the host has passed a reboot or health check. A failed fetch or build cannot advance it; a failed switch needs operator inspection.
+The Git checkout and root-only selector/revision state live outside the Nix store. Bootstrap pins the **installed commit**; later switches record the **last successfully switched commit**. Neither is a promise that the host has passed a reboot or health check. A failed fetch or build cannot advance it; a failed switch needs operator inspection.
 
 ## Choose your next step
 

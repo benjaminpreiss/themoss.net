@@ -9,7 +9,7 @@ set -euo pipefail
 export LC_ALL=C
 umask 077
 fail() { echo "themoss: $*" >&2; exit 1; }
-usage() { fail 'usage: deploy.sh discover TARGET DISK RECORD | preflight RECORD | install RECORD REPO REV MACHINE_DIR HOST BRANCH RECEIPT | bootstrap RECEIPT REPO MACHINE_DIR REMOTE_CHECKOUT REMOTE_MACHINE REMOTE_STATE | update REPO BRANCH MACHINE_DIR HOST STATE_DIR | transition RECEIPT TARGET REMOTE_CHECKOUT BRANCH NEW_MACHINE_DIR REMOTE_MACHINE HOST REMOTE_STATE'; }
+usage() { fail 'usage: deploy.sh discover TARGET DISK RECORD | preflight RECORD | install RECORD REPO REV MACHINE_DIR HOST BRANCH RECEIPT | bootstrap RECEIPT REPO MACHINE_DIR REMOTE_CHECKOUT REMOTE_MACHINE REMOTE_STATE | poll REPO MACHINE_DIR HOST STATE_DIR | deploy REPO REF MACHINE_DIR HOST STATE_DIR | transition RECEIPT TARGET REMOTE_CHECKOUT BRANCH NEW_MACHINE_DIR REMOTE_MACHINE HOST REMOTE_STATE | migrate STATE_DIR REF'; }
 [[ $# -ge 1 ]] || usage
 op=$1; shift
 
@@ -77,6 +77,59 @@ stage() {
   # These files MUST be credential-free: Nix store paths are world readable.
 }
 build() { nix build --no-link --no-write-lock-file "$1#nixosConfigurations.$2.config.system.build.toplevel"; }
+valid_ref() {
+  if [[ $1 == commit:* ]]; then [[ ${1#commit:} =~ ^[0-9a-f]{40}$ ]]
+  elif [[ $1 == branch:* ]]; then
+    [[ ${1#branch:} =~ ^[a-zA-Z0-9_/-]+$ && $1 != *..* && $1 != */ && $1 != *//* ]]
+    git check-ref-format "refs/heads/${1#branch:}" >/dev/null 2>&1
+  else return 1; fi
+}
+locked_state() {
+  [[ -d $1 && ! -L $1 && $(stat -c %a "$1") == 700 ]] || fail 'root-only state directory required'
+  [[ $(id -u) == 0 || ${THEMOSS_TEST_ROOT:-} == 1 ]] || fail 'root required'
+  [[ $(stat -c %u "$1") == 0 || ${THEMOSS_TEST_ROOT:-} == 1 ]] || fail 'state must be root-owned'
+  exec 9>"$1/lock"
+  flock -n 9 || fail 'deployment already running'
+  [[ ! -e $1/needs-inspection && ! -L $1/needs-inspection ]] || fail 'switch outcome requires operator inspection'
+  [[ -f $1/revision && ! -L $1/revision ]] || fail 'missing known-good revision'
+  current=$(<"$1/revision")
+  [[ $current =~ ^[0-9a-f]{40}$ ]] || fail 'invalid known-good revision'
+}
+selector() {
+  [[ -f $1/selector && ! -L $1/selector && $(stat -c %a "$1/selector") == 600 ]] || fail 'missing root-only selector; migrate explicitly'
+  [[ $(stat -c %u "$1/selector") == 0 || ${THEMOSS_TEST_ROOT:-} == 1 ]] || fail 'selector must be root-owned'
+  selected=$(<"$1/selector")
+  valid_ref "$selected" || fail 'invalid selector'
+}
+branch_tip() {
+  local repo=$1 branch=$2 tip
+  # A fully qualified refspec prevents FETCH_HEAD from including other branches.
+  git -C "$repo" fetch --no-tags origin "refs/heads/$branch"
+  tip=$(git -C "$repo" rev-parse FETCH_HEAD)
+  [[ $tip =~ ^[0-9a-f]{40}$ && $(git -C "$repo" cat-file -t "$tip") == commit ]] || fail 'invalid fetched tip'
+  printf '%s\n' "$tip"
+}
+record_switch() {
+  local state=$1 ref=$2 rev=$3
+  # Once switching begins, failures (including a partial activation) block
+  # further automation until the operator has reconciled the running system.
+  printf 'inspect generation and state before recovery\n' >"$state/needs-inspection"
+  nixos-rebuild switch --flake "$4#$5" --no-write-lock-file
+  if [[ -n ${6:-} ]]; then
+    cp -- "$6" "$7/machine.nix.tmp"
+    chmod 600 "$7/machine.nix.tmp"
+    mv -- "$7/machine.nix.tmp" "$7/machine.nix"
+  fi
+  printf '%s\n' "$ref" >"$state/selector.tmp"
+  printf '%s\n' "$rev" >"$state/revision.tmp"
+  chmod 600 "$state/selector.tmp" "$state/revision.tmp"
+  mv -f -- "$state/revision.tmp" "$state/revision"
+  mv -f -- "$state/selector.tmp" "$state/selector"
+  rm -- "$state/needs-inspection"
+}
+verify_tip() {
+  [[ $(git -C "$1" ls-remote --exit-code origin "refs/heads/$2" | cut -f1) == "$3" ]] || fail 'branch tip changed during deployment; retry'
+}
 case $op in
   discover)
     [[ $# == 3 ]] || usage
@@ -111,6 +164,7 @@ case $op in
     read -r -p "Type ERASE $disk to install on $(jq -r .target "$record"): " answer || fail 'confirmation denied'
     [[ $answer == "ERASE $disk" ]] || fail 'confirmation denied'
     check "$record" # target may have changed while building
+    verify_tip "$repo" "$branch" "$rev" # pushed tip may have moved during build
     # Destructive boundary: no other command below can reach this installer.
     nixos-anywhere --flake "$tmp#$host" --target-host "$(jq -r .target "$record")"
     # Only a successful installer can produce the off-host install receipt.
@@ -187,7 +241,7 @@ case $op in
     # The target has no toolkit checkout: transmit the same update implementation.
     ssh -o StrictHostKeyChecking=yes "$target" "bash -s -- prepare-transition $repo $machine $state $rev $sha" <"${BASH_SOURCE[0]}"
     tar -C "$new_machine" -cf - machine.nix | ssh -o StrictHostKeyChecking=yes "$target" "tar -xf - -C $state/transition-incoming --no-same-owner"
-    ssh -o StrictHostKeyChecking=yes "$target" "bash -s -- update $repo $branch $machine $host $state $state/transition-incoming/machine.nix $rev $sha" <"${BASH_SOURCE[0]}"
+    ssh -o StrictHostKeyChecking=yes "$target" "bash -s -- apply-transition $repo $branch $machine $host $state $state/transition-incoming/machine.nix $rev $sha" <"${BASH_SOURCE[0]}"
     ;;
   prepare-transition)
     # Target-side gate before uploading a reviewed private file. If state or
@@ -196,42 +250,71 @@ case $op in
     repo=$1 machine=$2 state=$3 rev=$4 sha=$5
     [[ -d $repo/.git && ! -L $repo && -d $machine && ! -L $machine && -d $state && ! -L $state ]] || fail 'missing target checkout/private state'
     [[ $rev =~ ^[0-9a-f]{40}$ && $sha =~ ^[0-9a-f]{64}$ ]] || fail 'invalid receipt'
-    [[ -f $state/revision && ! -L $state/revision && $(<"$state/revision") == "$rev" ]] || fail 'baseline no longer installed'
+    locked_state "$state"
+    selector "$state"
+    [[ $current == "$rev" ]] || fail 'baseline no longer installed'
     [[ -f $machine/machine.nix && ! -L $machine/machine.nix && $(sha256sum "$machine/machine.nix" | cut -d ' ' -f1) == "$sha" ]] || fail 'machine facts differ from installed input'
     [[ ! -L $state/transition-incoming ]] || fail 'linked upload directory'
     mkdir -p -m 700 "$state/transition-incoming"
     rm -f -- "$state/transition-incoming/machine.nix"
     ;;
-  update)
-    [[ $# == 5 || $# == 8 ]] || usage
-    repo=$1 branch=$2 machine=$3 host=$4 state=$5
-    reviewed=${6:-} expected_rev=${7:-} expected_sha=${8:-}
-    [[ $branch =~ ^[a-zA-Z0-9_/-]+$ && $branch != *..* ]] || fail 'invalid branch'
-    [[ ! -L $state ]] || fail 'linked state'
-    mkdir -p -m 700 "$state"
-    exec 9>"$state/lock"
-    flock -n 9 || fail 'update already running'
-    [[ -f $state/revision && ! -L $state/revision ]] || fail 'missing known-good revision'
-    current=$(<"$state/revision")
-    [[ $current =~ ^[0-9a-f]{40}$ ]] || fail 'invalid known-good revision'
-    if [[ -n $reviewed ]]; then
-      # Transition may change the private input only from the receipt's exact
-      # baseline; routine updates always use the already-installed input.
+  migrate)
+    [[ $# == 2 ]] || usage
+    state=$1 ref=$2
+    locked_state "$state"
+    [[ ! -e $state/selector && ! -L $state/selector ]] || fail 'selector already exists'
+    valid_ref "$ref" || fail 'invalid selector'
+    # Migration cannot assert an unverified branch baseline. Start pinned;
+    # use a reviewed transition to authorize branch tracking.
+    [[ $ref == "commit:$current" ]] || fail 'migrate only to installed commit pin'
+    printf '%s\n' "$ref" >"$state/selector"
+    chmod 600 "$state/selector"
+    ;;
+  poll | deploy | apply-transition)
+    if [[ $op == poll ]]; then [[ $# == 4 ]] || usage
+    elif [[ $op == deploy ]]; then [[ $# == 5 ]] || usage
+    else [[ $# == 8 ]] || usage; fi
+    repo=$1; shift
+    requested=''
+    if [[ $op == deploy ]]; then requested=$1; shift; fi
+    if [[ $op == apply-transition ]]; then branch=$1; shift; fi
+    machine=$1 host=$2 state=$3; shift 3
+    [[ -d $repo/.git && ! -L $repo && -d $machine && ! -L $machine && $host =~ ^[a-zA-Z0-9_-]+$ ]] || fail 'invalid target inputs'
+    locked_state "$state"
+    selector "$state"
+    reviewed=''
+    if [[ $op == poll ]]; then
+      [[ $selected == branch:* ]] || exit 0
+      requested=$selected
+    elif [[ $op == apply-transition ]]; then
+      reviewed=$1; expected_rev=$2; expected_sha=$3
+      requested="branch:$branch"
+      valid_ref "$requested" || fail 'invalid branch'
       [[ $expected_rev == "$current" && $expected_sha =~ ^[0-9a-f]{64}$ && $reviewed == "$state/transition-incoming/machine.nix" ]] || fail 'invalid transition baseline'
       [[ -f $reviewed && ! -L $reviewed && -f $machine/machine.nix && ! -L $machine/machine.nix ]] || fail 'missing reviewed/current machine facts'
       [[ $(sha256sum "$machine/machine.nix" | cut -d ' ' -f1) == "$expected_sha" ]] || fail 'machine facts changed since install'
       [[ ! -L $state/transition-incoming && $(stat -c %a "$state/transition-incoming") == 700 ]] || fail 'unsafe reviewed upload'
+      echo 'Reviewed transition: explicitly replacing prior baseline (squash/rebase allowed)' >&2
+    else
+      valid_ref "$requested" || fail 'invalid reference'
     fi
-    # Fetch/build failures and rewritten history cannot advance known-good.
-    git -C "$repo" fetch --no-tags origin "refs/heads/$branch"
-    next=$(git -C "$repo" rev-parse FETCH_HEAD)
-    git -C "$repo" merge-base --is-ancestor "$current" "$next" || fail 'diverged history'
-    if [[ $next == "$current" && -z $reviewed ]]; then echo "Already at $next"; exit 0; fi
+    if [[ $requested == branch:* ]]; then
+      branch=${requested#branch:}
+      next=$(branch_tip "$repo" "$branch")
+      if [[ $op != apply-transition ]]; then
+        git -C "$repo" merge-base --is-ancestor "$current" "$next" || fail 'diverged history; use reviewed transition'
+      fi
+      [[ $next != "$current" || $requested != "$selected" || -n $reviewed ]] || { echo "Already at $next"; exit 0; }
+    else
+      next=${requested#commit:}
+      [[ $(git -C "$repo" cat-file -t "$next") == commit ]] || fail 'commit missing locally'
+      [[ $next == "$current" || $selected == "commit:$current" ]] || fail 'new baseline requires reviewed transition'
+      [[ $next == "$current" && $selected == "$requested" ]] && exit 0
+      if [[ $next != "$current" ]]; then echo 'WARNING: pinning an unmerged commit; a later reviewed branch transition can replace it' >&2; fi
+    fi
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
     stage_machine=$machine
     if [[ -n $reviewed ]]; then
-      # Build with the proposed file but keep the live file untouched until
-      # the new system has successfully switched.
       mkdir -m 700 "$tmp/private"
       cp -- "$reviewed" "$tmp/private/machine.nix"
       if [[ -f $machine/facter.json && ! -L $machine/facter.json ]]; then cp -- "$machine/facter.json" "$tmp/private/facter.json"; fi
@@ -240,18 +323,10 @@ case $op in
     mkdir -m 700 "$tmp/source"
     stage "$repo" "$next" "$stage_machine" "$tmp/source"
     build "$tmp/source" "$host"
-    nixos-rebuild switch --flake "$tmp/source#$host" --no-write-lock-file
-    # Ordering matters: switch first, then persist the reviewed input, then
-    # advance revision. A post-switch write failure needs manual inspection.
-    if [[ -n $reviewed ]]; then
-      cp -- "$reviewed" "$machine/machine.nix.tmp"
-      chmod 600 "$machine/machine.nix.tmp"
-      mv -- "$machine/machine.nix.tmp" "$machine/machine.nix"
-    fi
-    printf '%s\n' "$next" >"$state/revision.tmp"
-    mv -f -- "$state/revision.tmp" "$state/revision"
-    if [[ -n $reviewed ]]; then rm -rf -- "$state/transition-incoming"; fi
-    echo "UPDATE OK $current -> $next"
+    if [[ $requested == branch:* ]]; then verify_tip "$repo" "$branch" "$next"; fi
+    record_switch "$state" "$requested" "$next" "$tmp/source" "$host" "$reviewed" "$machine"
+    [[ -z $reviewed ]] || rm -rf -- "$state/transition-incoming"
+    echo "SWITCH OK $current -> $next ($requested)"
     ;;
   *) usage ;;
 esac
