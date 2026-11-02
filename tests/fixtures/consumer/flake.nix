@@ -23,9 +23,7 @@
             fileSystems."/" = { device = "/dev/vda1"; fsType = "ext4"; };
             services.themossUpdate = {
               enable = true;
-              timer = false;
               repository = "/root/agentic";
-              branch = "main";
               machine = "/root/private-machine";
               host = "agentic";
               state = "/var/lib/themoss";

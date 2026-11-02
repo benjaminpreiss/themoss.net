@@ -18,7 +18,7 @@ git -C "$tmp" add flake.nix update.nix deploy.sh
   output=$(nix build --no-link --print-out-paths .#nixosConfigurations.synthetic.config.system.build.toplevel)
   [[ $(<"$output") == synthetic-machine ]]
   nix eval --raw .#nixosConfigurations.agentic.config.system.build.toplevel.drvPath >/dev/null
-  [[ $(nix eval --json .#nixosConfigurations.agentic.config.services.themossUpdate.timer) == false ]]
+  [[ $(nix eval --raw .#nixosConfigurations.agentic.config.systemd.services.themoss-update.serviceConfig.ExecStart) == *' poll /root/agentic '* ]]
 )
 # CI exercises the pinned Linux operator environment without a target or disk.
 nix develop --no-write-lock-file "$root#operator" --command bash -n "$root/toolkit/deploy.sh" "$root/toolkit/bootstrap-remote.sh"
