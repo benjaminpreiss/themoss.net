@@ -22,6 +22,7 @@ git -C "$tmp" add flake.nix update.nix deploy.sh
 )
 # CI exercises the pinned Linux operator environment without a target or disk.
 nix develop --no-write-lock-file "$root#operator" --command bash -n "$root/toolkit/deploy.sh" "$root/toolkit/bootstrap-remote.sh"
+# CI verifies generated standalone scripts, JSON specs and Markdown in this step.
 nix develop --no-write-lock-file "$root#operator" --command bash "$root/tests/argc.sh"
 nix develop --no-write-lock-file "$root#operator" --command bash "$root/tests/operator-smoke.sh"
 echo 'Synthetic consumer update/build and operator environment passed'
