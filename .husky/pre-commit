@@ -1,6 +1,0 @@
-npm run check:generated
-# Verify the checked files are the files being committed, not unstaged fixes.
-if ! git diff --quiet -- docs/cli-reference.md docs/cli-spec toolkit/source toolkit/deploy.sh toolkit/bootstrap-remote.sh toolkit/audit-app.sh toolkit/new-operator-manifest.sh; then
-  echo 'Stage CLI sources, generated scripts, JSON specs and Markdown before committing.' >&2
-  exit 1
-fi

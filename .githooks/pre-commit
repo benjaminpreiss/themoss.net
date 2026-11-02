@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Install with: git config core.hooksPath .githooks
+set -euo pipefail
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+# The pinned argc rebuild must match the checked-in Bash scripts, JSON specs,
+# and Markdown reference before allowing a commit.
+nix develop --no-write-lock-file .#operator --command bash tests/argc.sh
+if ! git diff --quiet -- docs/cli-reference.md docs/cli-spec toolkit/source toolkit/deploy.sh toolkit/bootstrap-remote.sh toolkit/audit-app.sh toolkit/new-operator-manifest.sh; then
+  echo 'Stage all CLI sources, generated scripts, JSON specs and Markdown before committing.' >&2
+  exit 1
+fi
