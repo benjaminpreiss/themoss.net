@@ -62,11 +62,10 @@ for name in machine.nix facter.json; do
     mv -n -- "$machine/$name.tmp" "$machine/$name"
   fi
 done
-# A candidate must never start the main updater before validation.
-systemctl disable --now themoss-update.timer
+# Timer/branch authorization belongs to the consumer's NixOS configuration.
 # Commit marker last. Interrupted attempts can be retried with identical inputs.
 printf '%s\n' "$rev" >"$state/revision.tmp"
 chmod 600 "$state/revision.tmp"
 mv -- "$state/revision.tmp" "$state/revision"
 rm -rf -- "$state/incoming"
-printf 'Bootstrapped installed revision %s; timer disabled\n' "$rev"
+printf 'Bootstrapped installed revision %s; timer policy unchanged\n' "$rev"

@@ -4,7 +4,7 @@
 
 ## Switch a reviewed revision
 
-The target needs a consumer Git checkout with its trusted `origin`, a private machine directory and a root-owned state directory. Initialize `STATE_DIR/revision` with the **40-character commit actually deployed**, not whichever commit happens to be on `main`. Keep the state file mode 0600.
+The target needs a consumer Git checkout with its trusted `origin`, a private machine directory and a root-owned state directory. For new installs, bootstrap initializes `STATE_DIR/revision` from the off-host install receipt; for previously deployed hosts, initialize it with the **40-character commit actually deployed**, not whichever commit happens to be on `main`. Keep the state file mode 0600.
 
 ```bash
 bash toolkit/deploy.sh update REPO BRANCH PRIVATE_MACHINE_DIR HOST_OUTPUT STATE_DIR
@@ -14,17 +14,17 @@ systemctl start themoss-update.service
 
 The update locks attempts, fetches the reviewed branch, requires the new commit to descend from the known-good revision, stages only committed source with the private machine files, and builds **before** `nixos-rebuild switch`. A failed fetch or build cannot reach switch; a failed switch may have partially activated services. State advances only on successful switch. Updates never call Disko.
 
-For a candidate/branch install, keep `services.themossUpdate.timer = false` and **do not manually start the service against old `main`**. Bootstrap also disables any existing timer. Agentic can leave it off and update manually; the relay may opt in after validation.
+For a candidate/branch install, keep `services.themossUpdate.timer = false` **in the installed candidate** and verify that no updater timer is present after boot. Do not manually start the service against old `main`. Bootstrap does not manage systemd units. Agentic can leave the timer off and update manually; the relay may opt in after validation.
 
 ### Candidate-to-main transition
 
-After first-boot verification and merge to the reviewed branch, review the fetched branch's NixOS configuration and run explicitly from the operator's pinned toolkit checkout:
+After first-boot verification and a merge that retains the installed commit's ancestry, review the branch's NixOS configuration. The consumer prepares a **new**, credential-free `machine.nix` in `REVIEWED_MACHINE_DIR` (mode 0600): for the relay this changes `peerRelay.autoUpdate = true` in both the off-server copy and the reviewed target input. Agentic may keep its manual-update default. Then run explicitly from the operator's pinned toolkit checkout:
 
 ```bash
-bash toolkit/deploy.sh transition root@HOST /root/consumer main /root/private-machine HOST_OUTPUT /var/lib/themoss
+bash toolkit/deploy.sh transition PRIVATE_INSTALL_RECEIPT.json root@HOST /root/consumer main REVIEWED_MACHINE_DIR /root/private-machine HOST_OUTPUT /var/lib/themoss
 ```
 
-This uses strict SSH host-key checking and the same update fetch → ancestry check → build → switch → known-good sequence; **no Disko, reset or silent rebaseline**. Only enable the timer in a reviewed consumer NixOS configuration after candidate validation. A squash/rebase that loses ancestry fails closed: do not edit `revision` to make it pass. A separate reviewed, non-destructive rebaseline procedure would need to prove the running configuration and new baseline match before writing state; this toolkit does not implement one.
+Transition checks that the target's current revision and machine file still match the install receipt, uploads the reviewed file, fetches the requested branch, checks ancestry, stages the **new** private file, builds and switches; only after a successful switch does it replace the target's private file and advance known-good state. It does not choose update policy: the consumer owns the new file, and a timer appears only if that file and the reviewed branch's NixOS configuration enable it. No Disko, reset or silent rebaseline. If fetch/build fails, neither the private file nor revision advances; a failed switch may partially activate services. If a post-switch write fails, stop and inspect the host rather than assuming it is synchronized. A squash/rebase that loses ancestry fails closed: do not edit `revision` to make it pass. A separate reviewed, non-destructive rebaseline procedure would need to prove the running configuration and new baseline match before writing state; this toolkit does not implement one.
 
 ### Recover from a bad update
 

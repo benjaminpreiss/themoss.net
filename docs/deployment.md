@@ -12,7 +12,7 @@ This toolkit shares **install, bootstrap and update mechanics**, not machine con
 | --- | --- |
 | `themoss.net` | Probe comparison, typed erase confirmation, staging and build-before-switch, update locking, optional timer and reusable workflow. |
 | Each consumer repo | Disko layout, boot/network and application modules, flake and Cargo locks, supported hardware, branch/cadence policy, CI, and its schedule/dispatch caller. |
-| Deployment computer; target when updating unattended | Per-machine `record.json`, generated `machine.nix`, optional `facter.json`, and the known-good deployed revision. Back these up **off-server**. |
+| Deployment computer; target when updating unattended | Per-machine `record.json`, install receipt, generated `machine.nix`, optional `facter.json`, and the known-good deployed revision. Back these up **off-server**. |
 | Consumer Actions secrets | Lock-update App ID and private key. Never place the key in this repo, on a target or in a Nix expression. |
 
 The record contains hardware identity; `machine.nix` may contain a **public** SSH key. Neither may contain secrets: Nix store inputs can be world-readable. Keep password hashes, private keys and tokens out of staged source.
@@ -30,10 +30,10 @@ On the deployment computer, use the pinned toolkit checkout with Bash, SSH, `jq`
 ```bash
 bash toolkit/deploy.sh discover root@HOST /dev/WHOLE_DISK PRIVATE_RECORD.json
 bash toolkit/deploy.sh preflight PRIVATE_RECORD.json
-bash toolkit/deploy.sh install PRIVATE_RECORD.json CONSUMER_REPO FULL_COMMIT PRIVATE_MACHINE_DIR HOST_OUTPUT PUSHED_BRANCH
+bash toolkit/deploy.sh install PRIVATE_RECORD.json CONSUMER_REPO FULL_COMMIT PRIVATE_MACHINE_DIR HOST_OUTPUT PUSHED_BRANCH PRIVATE_INSTALL_RECEIPT.json
 ```
 
-Discovery records architecture, boot mode, NIC/MAC and the chosen whole disk in a new mode-0600 file; it **does not** decide which disk is safe. The consumer generates `PRIVATE_MACHINE_DIR/machine.nix` (and optionally `facter.json`) and owns the Disko configuration. Review that configuration against the recorded disk and the **actual target** before install. Preflight re-probes the target. Install requires `FULL_COMMIT` to be the exact pushed head of `PUSHED_BRANCH`, stages committed consumer source plus the private machine files, builds the NixOS output, re-probes, and requires you to type `ERASE /dev/WHOLE_DISK` before invoking `nixos-anywhere`. **Only install can invoke Disko.** Never use install to repair an existing machine.
+Discovery records architecture, boot mode, NIC/MAC and the chosen whole disk in a new mode-0600 file; it **does not** decide which disk is safe. The consumer generates `PRIVATE_MACHINE_DIR/machine.nix` (and optionally `facter.json`) and owns the Disko configuration. Review that configuration against the recorded disk and the **actual target** before install. Preflight re-probes the target. Install requires a clean local checkout and `FULL_COMMIT` to be the exact pushed head of `PUSHED_BRANCH`, stages committed consumer source plus the private machine files, builds the NixOS output, re-probes, and requires you to type `ERASE /dev/WHOLE_DISK` before invoking `nixos-anywhere`. **Only install can invoke Disko.** After the installer succeeds, it writes a new mode-0600 off-host receipt containing the target, origin, commit, branch and hashes of staged private facts. Do not replace the receipt or rerun install to repair bootstrap; if an installer succeeded but receipt creation failed, stop and reconcile the installed revision through the provider console before any bootstrap.
 
 Back up the record and generated files encrypted off-server. Never restore another machine's record onto this one.
 
@@ -42,10 +42,10 @@ Back up the record and generated files encrypted off-server. Never restore anoth
 Verify the **new** SSH host key out of band at the provider console before putting it in your operator's `known_hosts`. The rescue host key is not the installed host key. No `accept-new` or automatic trust is used. After the first boot, from the deployment computer with the same pinned toolkit and reviewed private directory (mode 0600 `machine.nix`):
 
 ```bash
-bash toolkit/deploy.sh bootstrap root@HOST CONSUMER_REPO FULL_COMMIT PRIVATE_MACHINE_DIR /root/consumer /root/private-machine /var/lib/themoss PUSHED_BRANCH
+bash toolkit/deploy.sh bootstrap PRIVATE_INSTALL_RECEIPT.json CONSUMER_REPO PRIVATE_MACHINE_DIR /root/consumer /root/private-machine /var/lib/themoss
 ```
 
-This copies **only** `machine.nix` and optional `facter.json` via strict-key SSH; neither private keys nor tokens are accepted as inputs. They must be credential-free because install staging places them in the Nix store. The target fetches the consumer's configured `origin` and checks out exactly `FULL_COMMIT` detached, requiring it to remain an ancestor of the pushed branch. It writes `/var/lib/themoss/revision` last. The root-only checkout, private files and state reject mismatching existing state; an interrupted upload/clone can be retried with identical arguments. Keep paths separate and root-owned, and protect off-server backups. Bootstrap disables the update timer; a candidate must **also** set `services.themossUpdate.timer = false` in its NixOS configuration. Bootstrap cannot reconfigure a running host or erase a disk.
+This checks the private files against the receipt and copies **only** `machine.nix` and optional `facter.json` via strict-key SSH; neither private keys nor tokens are accepted as inputs. They must be credential-free because install staging places them in the Nix store. The target fetches the recorded `origin` and checks out exactly the receipt's installed commit detached, requiring it to remain an ancestor of the pushed branch. It writes `/var/lib/themoss/revision` last. The root-only checkout, private files and state reject mismatching existing state; an interrupted upload/clone can be retried with identical inputs. Keep paths separate and root-owned, and protect off-server backups. **Bootstrap never controls the timer.** A candidate's consumer NixOS configuration must set `services.themossUpdate.timer = false` *before installation*, and verify the unit is absent on first boot. Bootstrap cannot reconfigure a running host or erase a disk.
 
 After validating the candidate and merging to the reviewed branch, use the [explicit transition](updates.md#candidate-to-main-transition). Do not point a candidate's timer at old `main`.
 
