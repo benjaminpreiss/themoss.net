@@ -33,6 +33,26 @@ The consumer pins this toolkit by an **immutable flake commit** and commits its 
 
 The Git checkout and root-only selector/revision state live outside the Nix store. Bootstrap pins the **installed commit**; later switches record the **last successfully switched commit**. Neither is a promise that the host has passed a reboot or health check. A failed fetch or build cannot advance it; a failed switch needs operator inspection.
 
+## CLI help, JSON spec and generated reference
+
+For every command and argument, see the [generated Markdown command reference](cli-reference.md). The equivalent [JSON command specs](cli-spec/) are committed alongside it. Keep the runbooks for **review decisions and failure recovery**—a command schema cannot establish those safeguards.
+
+The four Bash entry points (`deploy.sh`, `bootstrap-remote.sh`, `audit-app.sh`, `new-operator-manifest.sh`) are **standalone argc builds** committed in `toolkit/`. They do **not** need argc at runtime, including when the scripts are streamed to the target over SSH. Their annotated definitions live in [`toolkit/source/`](../toolkit/source/); change those, not the generated scripts. Positional commands used by existing pinned consumers remain supported. The internal SSH commands are visible in generated help/spec but must not be run by operators.
+
+Inside the [pinned operator shell](deployment.md#operator-environment):
+
+```bash
+bash toolkit/deploy.sh --help
+bash toolkit/deploy.sh manifest install --help
+argc --argc-export toolkit/source/deploy.sh > /private/deploy-cli-spec.json
+# Optional: argc --argc-mangen toolkit/source/deploy.sh /private/man
+bash toolkit/regenerate-cli.sh # rebuild Bash, JSON specs, and Markdown reference
+bash tests/argc.sh
+bash tests/test.sh
+```
+
+`--argc-export` produces JSON **from the same argc annotations as parsing and help**; [`render-cli-reference.sh`](../toolkit/render-cli-reference.sh) turns the four exported JSON trees into Markdown. Both artifacts live in this repo and are checked for drift in CI. Use the JSON to inspect command names and positional parameters. It describes the *command interface*, not the contents of the private manifest or a proof that a command is safe: those validations remain in the toolkit's executable gates. CI checks regenerated scripts byte-for-byte against the pinned argc version. Regenerate inside the operator shell rather than using an unrelated argc release.
+
 ## Choose your next step
 
 - **New machine?** Follow [Deploy a machine](deployment.md).

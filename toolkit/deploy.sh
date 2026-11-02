@@ -5,13 +5,14 @@
 # Operator flow: discover -> preflight -> install -> verify NEW SSH host key ->
 # bootstrap -> validate host -> optionally transition to a reviewed branch.
 # Only install calls nixos-anywhere. Update and transition never partition disks.
+# @describe Shared deployment toolkit; only install erases a disk.
 set -euo pipefail
 export LC_ALL=C
 umask 077
 fail() { echo "themoss: $*" >&2; exit 1; }
-usage() { fail 'usage: deploy.sh manifest {plan|install|bootstrap|transition} PRIVATE_JSON | discover TARGET DISK RECORD | preflight RECORD | install RECORD REPO REV MACHINE_DIR HOST BRANCH RECEIPT [REPORT_GENERATOR|- [RECOVERY_DIR|- [PRE_ERASE_CHECK|-]]] | bootstrap RECEIPT REPO MACHINE_DIR REMOTE_CHECKOUT REMOTE_MACHINE REMOTE_STATE | adopt EVIDENCE REPO MACHINE_DIR HOST REMOTE_CHECKOUT REMOTE_MACHINE HOST REMOTE_STATE | poll REPO MACHINE_DIR HOST STATE_DIR | deploy REPO REF MACHINE_DIR HOST STATE_DIR | transition RECEIPT TARGET REMOTE_CHECKOUT BRANCH NEW_MACHINE_DIR REMOTE_MACHINE HOST REMOTE_STATE | migrate STATE_DIR REF'; }
-[[ $# -ge 1 ]] || usage
-op=$1; shift
+# argc declarations below are the command contract. Keep the positional
+# implementation gates below for existing pinned consumers and remote calls.
+usage() { fail 'invalid arguments; run deploy.sh --help'; }
 
 probe() {
   local target=$1
@@ -130,6 +131,8 @@ record_switch() {
 verify_tip() {
   [[ $(git -C "$1" ls-remote --exit-code origin "refs/heads/$2" | cut -f1) == "$3" ]] || fail 'branch tip changed during deployment; retry'
 }
+_legacy() {
+local op=$1; shift
 case $op in
   manifest)
     [[ $# == 2 ]] || usage
@@ -458,3 +461,1556 @@ case $op in
     ;;
   *) usage ;;
 esac
+}
+
+# @cmd Create a private discovery record for one whole disk
+# @arg target! <TARGET> Root SSH target
+# @arg disk! <DISK> Whole /dev disk
+# @arg record! <FILE> New private discovery record
+discover() { _legacy discover "$@"; }
+
+# @cmd Re-probe and compare the target with its discovery record
+# @arg record! <FILE> Private discovery record
+preflight() { _legacy preflight "$@"; }
+
+# @cmd Build and install an exact pushed revision; erases the selected disk
+# @arg record! <FILE> Discovery record
+# @arg repo! <DIR> Clean consumer checkout
+# @arg rev! <REV> Full pushed commit
+# @arg machine! <DIR> Credential-free private inputs
+# @arg host! <HOST> NixOS output
+# @arg branch! <BRANCH> Pushed branch
+# @arg receipt! <FILE> New off-host receipt
+# @arg generator <FILE> Report generator, or -
+# @arg recovery <DIR> Recovery tree, or -
+# @arg pre_erase <FILE> Pre-erase check, or -
+install() { _legacy install "$@"; }
+
+# @cmd Bootstrap the exact installed revision without erasing disks
+# @arg receipt! <FILE> Off-host receipt
+# @arg repo! <DIR> Consumer checkout
+# @arg machine! <DIR> Original private inputs
+# @arg checkout! <PATH> Remote checkout
+# @arg remote_machine! <PATH> Remote machine directory
+# @arg state! <PATH> Remote root-only state
+bootstrap() { _legacy bootstrap "$@"; }
+
+# @cmd Adopt a verified legacy host without reinstalling
+# @arg evidence! <FILE> Operator-verified evidence
+# @arg repo! <DIR> Consumer checkout
+# @arg machine! <DIR> Original private inputs
+# @arg host! <HOST> NixOS output
+# @arg checkout! <PATH> Remote checkout
+# @arg remote_machine! <PATH> Remote machine directory
+# @arg state! <PATH> Remote state
+adopt() { _legacy adopt "$@"; }
+
+# @cmd Run a reviewed non-destructive candidate transition
+# @arg receipt! <FILE> Install receipt
+# @arg target! <TARGET> Root SSH target
+# @arg checkout! <PATH> Remote checkout
+# @arg branch! <BRANCH> Candidate branch
+# @arg new_machine! <DIR> Reviewed private machine input
+# @arg remote_machine! <PATH> Remote machine directory
+# @arg host! <HOST> NixOS output
+# @arg state! <PATH> Remote state
+transition() { _legacy transition "$@"; }
+
+# @cmd Poll the root-owned selector for a new revision (target-side)
+# @arg repo! <DIR> Target checkout
+# @arg machine! <DIR> Target private machine input
+# @arg host! <HOST> NixOS output
+# @arg state! <DIR> Root-only state
+poll() { _legacy poll "$@"; }
+
+# @cmd Switch to an explicitly selected revision (target-side)
+# @arg repo! <DIR> Target checkout
+# @arg ref! <REF> commit:SHA or branch:NAME
+# @arg machine! <DIR> Target private machine input
+# @arg host! <HOST> NixOS output
+# @arg state! <DIR> Root-only state
+deploy() { _legacy deploy "$@"; }
+
+# @cmd Pin an existing installed revision in root-owned state
+# @arg state! <DIR> Root-only state
+# @arg ref! <REF> Installed commit pin
+migrate() { _legacy migrate "$@"; }
+
+# @cmd Operate on a private off-host JSON manifest
+manifest() { :; }
+
+# @cmd Review target, whole disk and exact pushed tip without installing
+# @arg file! <FILE> Mode-600 private manifest
+manifest::plan() { _legacy manifest plan "$@"; }
+
+# @cmd Build and install from a reviewed manifest; erases the selected disk
+# @arg file! <FILE> Mode-600 private manifest
+manifest::install() { _legacy manifest install "$@"; }
+
+# @cmd Resume non-destructive bootstrap from a private manifest
+# @arg file! <FILE> Mode-600 private manifest
+manifest::bootstrap() { _legacy manifest bootstrap "$@"; }
+
+# @cmd Apply a reviewed non-destructive transition
+# @arg file! <FILE> Mode-600 private manifest
+manifest::transition() { _legacy manifest transition "$@"; }
+
+# Internal SSH protocol. Exposed to argc for strict parsing, not for operators.
+# @cmd Internal: prepare a reviewed transition upload (target-side)
+# @arg repo! <PATH> Remote checkout
+# @arg machine! <PATH> Remote machine
+# @arg state! <PATH> Remote state
+# @arg rev! <REV> Installed revision
+# @arg sha! <SHA> Installed machine hash
+prepare-transition() { _legacy prepare-transition "$@"; }
+
+# @cmd Internal: apply a reviewed candidate transition (target-side)
+# @arg repo! <PATH> Remote checkout
+# @arg branch! <BRANCH> Reviewed branch
+# @arg machine! <PATH> Remote machine
+# @arg host! <HOST> NixOS output
+# @arg state! <PATH> Root-only state
+# @arg reviewed! <PATH> Reviewed machine input
+# @arg rev! <REV> Installed revision
+# @arg sha! <SHA> Installed machine hash
+apply-transition() { _legacy apply-transition "$@"; }
+
+# ARGC-BUILD {
+# This block was generated by argc (https://github.com/sigoden/argc).
+# Modifying it manually is not recommended
+
+_argc_run() {
+    if [[ "${1:-}" == "___internal___" ]]; then
+        _argc_die "error: unsupported ___internal___ command"
+    fi
+    if [[ "${OS:-}" == "Windows_NT" ]] && [[ -n "${MSYSTEM:-}" ]]; then
+        set -o igncr
+    fi
+    argc__args=("$(basename "$0" .sh)" "$@")
+    argc__positionals=()
+    _argc_index=1
+    _argc_len="${#argc__args[@]}"
+    _argc_tools=()
+    _argc_parse
+    if [ -n "${argc__fn:-}" ]; then
+        $argc__fn "${argc__positionals[@]}"
+    fi
+}
+
+_argc_usage() {
+    cat <<-'EOF'
+Shared deployment toolkit; only install erases a disk.
+
+USAGE: deploy <COMMAND>
+
+COMMANDS:
+  discover            Create a private discovery record for one whole disk
+  preflight           Re-probe and compare the target with its discovery record
+  install             Build and install an exact pushed revision; erases the selected disk
+  bootstrap           Bootstrap the exact installed revision without erasing disks
+  adopt               Adopt a verified legacy host without reinstalling
+  transition          Run a reviewed non-destructive candidate transition
+  poll                Poll the root-owned selector for a new revision (target-side)
+  deploy              Switch to an explicitly selected revision (target-side)
+  migrate             Pin an existing installed revision in root-owned state
+  manifest            Operate on a private off-host JSON manifest
+  prepare-transition  Internal: prepare a reviewed transition upload (target-side)
+  apply-transition    Internal: apply a reviewed candidate transition (target-side)
+EOF
+    exit
+}
+
+_argc_version() {
+    echo deploy 0.0.0
+    exit
+}
+
+_argc_parse() {
+    local _argc_key _argc_action
+    local _argc_subcmds="discover, preflight, install, bootstrap, adopt, transition, poll, deploy, migrate, manifest, prepare-transition, apply-transition"
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage
+            ;;
+        --version | -version | -V)
+            _argc_version
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        discover)
+            _argc_index=$((_argc_index + 1))
+            _argc_action=_argc_parse_discover
+            break
+            ;;
+        preflight)
+            _argc_index=$((_argc_index + 1))
+            _argc_action=_argc_parse_preflight
+            break
+            ;;
+        install)
+            _argc_index=$((_argc_index + 1))
+            _argc_action=_argc_parse_install
+            break
+            ;;
+        bootstrap)
+            _argc_index=$((_argc_index + 1))
+            _argc_action=_argc_parse_bootstrap
+            break
+            ;;
+        adopt)
+            _argc_index=$((_argc_index + 1))
+            _argc_action=_argc_parse_adopt
+            break
+            ;;
+        transition)
+            _argc_index=$((_argc_index + 1))
+            _argc_action=_argc_parse_transition
+            break
+            ;;
+        poll)
+            _argc_index=$((_argc_index + 1))
+            _argc_action=_argc_parse_poll
+            break
+            ;;
+        deploy)
+            _argc_index=$((_argc_index + 1))
+            _argc_action=_argc_parse_deploy
+            break
+            ;;
+        migrate)
+            _argc_index=$((_argc_index + 1))
+            _argc_action=_argc_parse_migrate
+            break
+            ;;
+        manifest)
+            _argc_index=$((_argc_index + 1))
+            _argc_action=_argc_parse_manifest
+            break
+            ;;
+        prepare-transition)
+            _argc_index=$((_argc_index + 1))
+            _argc_action=_argc_parse_prepare-transition
+            break
+            ;;
+        apply-transition)
+            _argc_index=$((_argc_index + 1))
+            _argc_action=_argc_parse_apply-transition
+            break
+            ;;
+        help)
+            local help_arg="${argc__args[$((_argc_index + 1))]:-}"
+            case "$help_arg" in
+            discover)
+                _argc_usage_discover
+                ;;
+            preflight)
+                _argc_usage_preflight
+                ;;
+            install)
+                _argc_usage_install
+                ;;
+            bootstrap)
+                _argc_usage_bootstrap
+                ;;
+            adopt)
+                _argc_usage_adopt
+                ;;
+            transition)
+                _argc_usage_transition
+                ;;
+            poll)
+                _argc_usage_poll
+                ;;
+            deploy)
+                _argc_usage_deploy
+                ;;
+            migrate)
+                _argc_usage_migrate
+                ;;
+            manifest)
+                _argc_usage_manifest
+                ;;
+            prepare-transition)
+                _argc_usage_prepare-transition
+                ;;
+            apply-transition)
+                _argc_usage_apply-transition
+                ;;
+            "")
+                _argc_usage
+                ;;
+            *)
+                _argc_die "error: invalid value \`$help_arg\` for \`<command>\`"$'\n'"  [possible values: $_argc_subcmds]"
+                ;;
+            esac
+            ;;
+        *)
+            _argc_die "error: \`deploy\` requires a subcommand but one was not provided"$'\n'"  [subcommands: $_argc_subcmds]"
+            ;;
+        esac
+    done
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        _argc_usage
+    fi
+}
+
+_argc_usage_discover() {
+    cat <<-'EOF'
+Create a private discovery record for one whole disk
+
+USAGE: deploy discover <TARGET> <DISK> <FILE>
+
+ARGS:
+  <TARGET>  Root SSH target
+  <DISK>    Whole /dev disk
+  <FILE>    New private discovery record
+EOF
+    exit
+}
+
+_argc_parse_discover() {
+    local _argc_key _argc_action
+    local _argc_subcmds=""
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage_discover
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        *)
+            argc__positionals+=("$_argc_item")
+            _argc_index=$((_argc_index + 1))
+            ;;
+        esac
+    done
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        argc__fn=discover
+        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
+            _argc_usage_discover
+        fi
+        _argc_match_positionals 0 0 0
+        local values_index values_size
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_target="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<TARGET>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[1]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_disk="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<DISK>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[2]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_record="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<FILE>\` were not provided"
+        fi
+    fi
+}
+
+_argc_usage_preflight() {
+    cat <<-'EOF'
+Re-probe and compare the target with its discovery record
+
+USAGE: deploy preflight <FILE>
+
+ARGS:
+  <FILE>  Private discovery record
+EOF
+    exit
+}
+
+_argc_parse_preflight() {
+    local _argc_key _argc_action
+    local _argc_subcmds=""
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage_preflight
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        *)
+            argc__positionals+=("$_argc_item")
+            _argc_index=$((_argc_index + 1))
+            ;;
+        esac
+    done
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        argc__fn=preflight
+        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
+            _argc_usage_preflight
+        fi
+        _argc_match_positionals 0
+        local values_index values_size
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_record="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<FILE>\` were not provided"
+        fi
+    fi
+}
+
+_argc_usage_install() {
+    cat <<-'EOF'
+Build and install an exact pushed revision; erases the selected disk
+
+USAGE: deploy install <FILE> <DIR> <REV> <DIR> <HOST> <BRANCH> <FILE> [FILE] [DIR] [FILE]
+
+ARGS:
+  <FILE>    Discovery record
+  <DIR>     Clean consumer checkout
+  <REV>     Full pushed commit
+  <DIR>     Credential-free private inputs
+  <HOST>    NixOS output
+  <BRANCH>  Pushed branch
+  <FILE>    New off-host receipt
+  [FILE]    Report generator, or -
+  [DIR]     Recovery tree, or -
+  [FILE]    Pre-erase check, or -
+EOF
+    exit
+}
+
+_argc_parse_install() {
+    local _argc_key _argc_action
+    local _argc_subcmds=""
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage_install
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        *)
+            argc__positionals+=("$_argc_item")
+            _argc_index=$((_argc_index + 1))
+            ;;
+        esac
+    done
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        argc__fn=install
+        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
+            _argc_usage_install
+        fi
+        _argc_match_positionals 0 0 0 0 0 0 0 0 0 0
+        local values_index values_size
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_record="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<FILE>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[1]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_repo="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<DIR>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[2]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_rev="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<REV>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[3]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_machine="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<DIR>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[4]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_host="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<HOST>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[5]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_branch="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<BRANCH>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[6]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_receipt="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<FILE>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[7]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_generator="${argc__positionals[values_index]}"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[8]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_recovery="${argc__positionals[values_index]}"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[9]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_pre_erase="${argc__positionals[values_index]}"
+        fi
+    fi
+}
+
+_argc_usage_bootstrap() {
+    cat <<-'EOF'
+Bootstrap the exact installed revision without erasing disks
+
+USAGE: deploy bootstrap <FILE> <DIR> <DIR> <PATH> <PATH> <PATH>
+
+ARGS:
+  <FILE>  Off-host receipt
+  <DIR>   Consumer checkout
+  <DIR>   Original private inputs
+  <PATH>  Remote checkout
+  <PATH>  Remote machine directory
+  <PATH>  Remote root-only state
+EOF
+    exit
+}
+
+_argc_parse_bootstrap() {
+    local _argc_key _argc_action
+    local _argc_subcmds=""
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage_bootstrap
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        *)
+            argc__positionals+=("$_argc_item")
+            _argc_index=$((_argc_index + 1))
+            ;;
+        esac
+    done
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        argc__fn=bootstrap
+        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
+            _argc_usage_bootstrap
+        fi
+        _argc_match_positionals 0 0 0 0 0 0
+        local values_index values_size
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_receipt="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<FILE>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[1]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_repo="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<DIR>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[2]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_machine="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<DIR>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[3]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_checkout="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<PATH>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[4]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_remote_machine="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<PATH>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[5]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_state="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<PATH>\` were not provided"
+        fi
+    fi
+}
+
+_argc_usage_adopt() {
+    cat <<-'EOF'
+Adopt a verified legacy host without reinstalling
+
+USAGE: deploy adopt <FILE> <DIR> <DIR> <HOST> <PATH> <PATH> <PATH>
+
+ARGS:
+  <FILE>  Operator-verified evidence
+  <DIR>   Consumer checkout
+  <DIR>   Original private inputs
+  <HOST>  NixOS output
+  <PATH>  Remote checkout
+  <PATH>  Remote machine directory
+  <PATH>  Remote state
+EOF
+    exit
+}
+
+_argc_parse_adopt() {
+    local _argc_key _argc_action
+    local _argc_subcmds=""
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage_adopt
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        *)
+            argc__positionals+=("$_argc_item")
+            _argc_index=$((_argc_index + 1))
+            ;;
+        esac
+    done
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        argc__fn=adopt
+        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
+            _argc_usage_adopt
+        fi
+        _argc_match_positionals 0 0 0 0 0 0 0
+        local values_index values_size
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_evidence="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<FILE>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[1]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_repo="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<DIR>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[2]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_machine="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<DIR>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[3]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_host="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<HOST>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[4]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_checkout="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<PATH>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[5]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_remote_machine="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<PATH>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[6]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_state="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<PATH>\` were not provided"
+        fi
+    fi
+}
+
+_argc_usage_transition() {
+    cat <<-'EOF'
+Run a reviewed non-destructive candidate transition
+
+USAGE: deploy transition <FILE> <TARGET> <PATH> <BRANCH> <DIR> <PATH> <HOST> <PATH>
+
+ARGS:
+  <FILE>    Install receipt
+  <TARGET>  Root SSH target
+  <PATH>    Remote checkout
+  <BRANCH>  Candidate branch
+  <DIR>     Reviewed private machine input
+  <PATH>    Remote machine directory
+  <HOST>    NixOS output
+  <PATH>    Remote state
+EOF
+    exit
+}
+
+_argc_parse_transition() {
+    local _argc_key _argc_action
+    local _argc_subcmds=""
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage_transition
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        *)
+            argc__positionals+=("$_argc_item")
+            _argc_index=$((_argc_index + 1))
+            ;;
+        esac
+    done
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        argc__fn=transition
+        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
+            _argc_usage_transition
+        fi
+        _argc_match_positionals 0 0 0 0 0 0 0 0
+        local values_index values_size
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_receipt="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<FILE>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[1]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_target="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<TARGET>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[2]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_checkout="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<PATH>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[3]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_branch="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<BRANCH>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[4]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_new_machine="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<DIR>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[5]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_remote_machine="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<PATH>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[6]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_host="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<HOST>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[7]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_state="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<PATH>\` were not provided"
+        fi
+    fi
+}
+
+_argc_usage_poll() {
+    cat <<-'EOF'
+Poll the root-owned selector for a new revision (target-side)
+
+USAGE: deploy poll <DIR> <DIR> <HOST> <DIR>
+
+ARGS:
+  <DIR>   Target checkout
+  <DIR>   Target private machine input
+  <HOST>  NixOS output
+  <DIR>   Root-only state
+EOF
+    exit
+}
+
+_argc_parse_poll() {
+    local _argc_key _argc_action
+    local _argc_subcmds=""
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage_poll
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        *)
+            argc__positionals+=("$_argc_item")
+            _argc_index=$((_argc_index + 1))
+            ;;
+        esac
+    done
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        argc__fn=poll
+        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
+            _argc_usage_poll
+        fi
+        _argc_match_positionals 0 0 0 0
+        local values_index values_size
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_repo="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<DIR>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[1]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_machine="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<DIR>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[2]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_host="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<HOST>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[3]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_state="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<DIR>\` were not provided"
+        fi
+    fi
+}
+
+_argc_usage_deploy() {
+    cat <<-'EOF'
+Switch to an explicitly selected revision (target-side)
+
+USAGE: deploy deploy <DIR> <REF> <DIR> <HOST> <DIR>
+
+ARGS:
+  <DIR>   Target checkout
+  <REF>   commit:SHA or branch:NAME
+  <DIR>   Target private machine input
+  <HOST>  NixOS output
+  <DIR>   Root-only state
+EOF
+    exit
+}
+
+_argc_parse_deploy() {
+    local _argc_key _argc_action
+    local _argc_subcmds=""
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage_deploy
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        *)
+            argc__positionals+=("$_argc_item")
+            _argc_index=$((_argc_index + 1))
+            ;;
+        esac
+    done
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        argc__fn=deploy
+        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
+            _argc_usage_deploy
+        fi
+        _argc_match_positionals 0 0 0 0 0
+        local values_index values_size
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_repo="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<DIR>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[1]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_ref="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<REF>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[2]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_machine="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<DIR>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[3]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_host="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<HOST>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[4]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_state="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<DIR>\` were not provided"
+        fi
+    fi
+}
+
+_argc_usage_migrate() {
+    cat <<-'EOF'
+Pin an existing installed revision in root-owned state
+
+USAGE: deploy migrate <DIR> <REF>
+
+ARGS:
+  <DIR>  Root-only state
+  <REF>  Installed commit pin
+EOF
+    exit
+}
+
+_argc_parse_migrate() {
+    local _argc_key _argc_action
+    local _argc_subcmds=""
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage_migrate
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        *)
+            argc__positionals+=("$_argc_item")
+            _argc_index=$((_argc_index + 1))
+            ;;
+        esac
+    done
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        argc__fn=migrate
+        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
+            _argc_usage_migrate
+        fi
+        _argc_match_positionals 0 0
+        local values_index values_size
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_state="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<DIR>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[1]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_ref="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<REF>\` were not provided"
+        fi
+    fi
+}
+
+_argc_usage_manifest() {
+    cat <<-'EOF'
+Operate on a private off-host JSON manifest
+
+USAGE: deploy manifest <COMMAND>
+
+COMMANDS:
+  plan        Review target, whole disk and exact pushed tip without installing
+  install     Build and install from a reviewed manifest; erases the selected disk
+  bootstrap   Resume non-destructive bootstrap from a private manifest
+  transition  Apply a reviewed non-destructive transition
+EOF
+    exit
+}
+
+_argc_parse_manifest() {
+    local _argc_key _argc_action
+    local _argc_subcmds="plan, install, bootstrap, transition"
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage_manifest
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        plan)
+            _argc_index=$((_argc_index + 1))
+            _argc_action=_argc_parse_manifest_plan
+            break
+            ;;
+        install)
+            _argc_index=$((_argc_index + 1))
+            _argc_action=_argc_parse_manifest_install
+            break
+            ;;
+        bootstrap)
+            _argc_index=$((_argc_index + 1))
+            _argc_action=_argc_parse_manifest_bootstrap
+            break
+            ;;
+        transition)
+            _argc_index=$((_argc_index + 1))
+            _argc_action=_argc_parse_manifest_transition
+            break
+            ;;
+        help)
+            local help_arg="${argc__args[$((_argc_index + 1))]:-}"
+            case "$help_arg" in
+            plan)
+                _argc_usage_manifest_plan
+                ;;
+            install)
+                _argc_usage_manifest_install
+                ;;
+            bootstrap)
+                _argc_usage_manifest_bootstrap
+                ;;
+            transition)
+                _argc_usage_manifest_transition
+                ;;
+            "")
+                _argc_usage_manifest
+                ;;
+            *)
+                _argc_die "error: invalid value \`$help_arg\` for \`<command>\`"$'\n'"  [possible values: $_argc_subcmds]"
+                ;;
+            esac
+            ;;
+        *)
+            _argc_die "error: \`deploy-manifest\` requires a subcommand but one was not provided"$'\n'"  [subcommands: $_argc_subcmds]"
+            ;;
+        esac
+    done
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        _argc_usage_manifest
+    fi
+}
+
+_argc_usage_manifest_plan() {
+    cat <<-'EOF'
+Review target, whole disk and exact pushed tip without installing
+
+USAGE: deploy manifest plan <FILE>
+
+ARGS:
+  <FILE>  Mode-600 private manifest
+EOF
+    exit
+}
+
+_argc_parse_manifest_plan() {
+    local _argc_key _argc_action
+    local _argc_subcmds=""
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage_manifest_plan
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        *)
+            argc__positionals+=("$_argc_item")
+            _argc_index=$((_argc_index + 1))
+            ;;
+        esac
+    done
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        argc__fn=manifest::plan
+        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
+            _argc_usage_manifest_plan
+        fi
+        _argc_match_positionals 0
+        local values_index values_size
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_file="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<FILE>\` were not provided"
+        fi
+    fi
+}
+
+_argc_usage_manifest_install() {
+    cat <<-'EOF'
+Build and install from a reviewed manifest; erases the selected disk
+
+USAGE: deploy manifest install <FILE>
+
+ARGS:
+  <FILE>  Mode-600 private manifest
+EOF
+    exit
+}
+
+_argc_parse_manifest_install() {
+    local _argc_key _argc_action
+    local _argc_subcmds=""
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage_manifest_install
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        *)
+            argc__positionals+=("$_argc_item")
+            _argc_index=$((_argc_index + 1))
+            ;;
+        esac
+    done
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        argc__fn=manifest::install
+        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
+            _argc_usage_manifest_install
+        fi
+        _argc_match_positionals 0
+        local values_index values_size
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_file="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<FILE>\` were not provided"
+        fi
+    fi
+}
+
+_argc_usage_manifest_bootstrap() {
+    cat <<-'EOF'
+Resume non-destructive bootstrap from a private manifest
+
+USAGE: deploy manifest bootstrap <FILE>
+
+ARGS:
+  <FILE>  Mode-600 private manifest
+EOF
+    exit
+}
+
+_argc_parse_manifest_bootstrap() {
+    local _argc_key _argc_action
+    local _argc_subcmds=""
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage_manifest_bootstrap
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        *)
+            argc__positionals+=("$_argc_item")
+            _argc_index=$((_argc_index + 1))
+            ;;
+        esac
+    done
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        argc__fn=manifest::bootstrap
+        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
+            _argc_usage_manifest_bootstrap
+        fi
+        _argc_match_positionals 0
+        local values_index values_size
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_file="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<FILE>\` were not provided"
+        fi
+    fi
+}
+
+_argc_usage_manifest_transition() {
+    cat <<-'EOF'
+Apply a reviewed non-destructive transition
+
+USAGE: deploy manifest transition <FILE>
+
+ARGS:
+  <FILE>  Mode-600 private manifest
+EOF
+    exit
+}
+
+_argc_parse_manifest_transition() {
+    local _argc_key _argc_action
+    local _argc_subcmds=""
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage_manifest_transition
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        *)
+            argc__positionals+=("$_argc_item")
+            _argc_index=$((_argc_index + 1))
+            ;;
+        esac
+    done
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        argc__fn=manifest::transition
+        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
+            _argc_usage_manifest_transition
+        fi
+        _argc_match_positionals 0
+        local values_index values_size
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_file="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<FILE>\` were not provided"
+        fi
+    fi
+}
+
+_argc_usage_prepare-transition() {
+    cat <<-'EOF'
+Internal: prepare a reviewed transition upload (target-side)
+
+USAGE: deploy prepare-transition <PATH> <PATH> <PATH> <REV> <SHA>
+
+ARGS:
+  <PATH>  Remote checkout
+  <PATH>  Remote machine
+  <PATH>  Remote state
+  <REV>   Installed revision
+  <SHA>   Installed machine hash
+EOF
+    exit
+}
+
+_argc_parse_prepare-transition() {
+    local _argc_key _argc_action
+    local _argc_subcmds=""
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage_prepare-transition
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        *)
+            argc__positionals+=("$_argc_item")
+            _argc_index=$((_argc_index + 1))
+            ;;
+        esac
+    done
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        argc__fn=prepare-transition
+        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
+            _argc_usage_prepare-transition
+        fi
+        _argc_match_positionals 0 0 0 0 0
+        local values_index values_size
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_repo="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<PATH>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[1]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_machine="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<PATH>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[2]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_state="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<PATH>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[3]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_rev="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<REV>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[4]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_sha="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<SHA>\` were not provided"
+        fi
+    fi
+}
+
+_argc_usage_apply-transition() {
+    cat <<-'EOF'
+Internal: apply a reviewed candidate transition (target-side)
+
+USAGE: deploy apply-transition <PATH> <BRANCH> <PATH> <HOST> <PATH> <PATH> <REV> <SHA>
+
+ARGS:
+  <PATH>    Remote checkout
+  <BRANCH>  Reviewed branch
+  <PATH>    Remote machine
+  <HOST>    NixOS output
+  <PATH>    Root-only state
+  <PATH>    Reviewed machine input
+  <REV>     Installed revision
+  <SHA>     Installed machine hash
+EOF
+    exit
+}
+
+_argc_parse_apply-transition() {
+    local _argc_key _argc_action
+    local _argc_subcmds=""
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage_apply-transition
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        *)
+            argc__positionals+=("$_argc_item")
+            _argc_index=$((_argc_index + 1))
+            ;;
+        esac
+    done
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        argc__fn=apply-transition
+        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
+            _argc_usage_apply-transition
+        fi
+        _argc_match_positionals 0 0 0 0 0 0 0 0
+        local values_index values_size
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_repo="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<PATH>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[1]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_branch="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<BRANCH>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[2]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_machine="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<PATH>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[3]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_host="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<HOST>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[4]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_state="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<PATH>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[5]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_reviewed="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<PATH>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[6]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_rev="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<REV>\` were not provided"
+        fi
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[7]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_sha="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<SHA>\` were not provided"
+        fi
+    fi
+}
+
+_argc_match_positionals() {
+    _argc_match_positionals_values=()
+    _argc_match_positionals_len=0
+    local params=("$@")
+    local args_len="${#argc__positionals[@]}"
+    if [[ $args_len -eq 0 ]]; then
+        return
+    fi
+    local params_len=$# arg_index=0 param_index=0
+    while [[ $param_index -lt $params_len && $arg_index -lt $args_len ]]; do
+        local takes=0
+        if [[ "${params[param_index]}" -eq 1 ]]; then
+            if [[ $param_index -eq 0 ]] &&
+                [[ ${_argc_dash:-} -gt 0 ]] &&
+                [[ $params_len -eq 2 ]] &&
+                [[ "${params[$((param_index + 1))]}" -eq 1 ]] \
+                ; then
+                takes=${_argc_dash:-}
+            else
+                local arg_diff=$((args_len - arg_index)) param_diff=$((params_len - param_index))
+                if [[ $arg_diff -gt $param_diff ]]; then
+                    takes=$((arg_diff - param_diff + 1))
+                else
+                    takes=1
+                fi
+            fi
+        else
+            takes=1
+        fi
+        _argc_match_positionals_values+=("$arg_index:$takes")
+        arg_index=$((arg_index + takes))
+        param_index=$((param_index + 1))
+    done
+    if [[ $arg_index -lt $args_len ]]; then
+        _argc_match_positionals_values+=("$arg_index:$((args_len - arg_index))")
+    fi
+    _argc_match_positionals_len=${#_argc_match_positionals_values[@]}
+    if [[ $params_len -gt 0 ]] && [[ $_argc_match_positionals_len -gt $params_len ]]; then
+        local index="${_argc_match_positionals_values[params_len]%%:*}"
+        _argc_die "error: unexpected argument \`${argc__positionals[index]}\` found"
+    fi
+}
+
+_argc_die() {
+    if [[ $# -eq 0 ]]; then
+        cat
+    else
+        echo "$*" >&2
+    fi
+    exit 1
+}
+
+_argc_run "$@"
+
+# ARGC-BUILD }

@@ -116,7 +116,7 @@ The receipt binds the original target, origin, baseline revision/branch and mach
 
 **No migration is required.** Existing pinned consumers can keep using `discover`, `preflight`, `install`, `bootstrap` and `transition` with positional arguments. To adopt the manifest, put those same values in the JSON (the authoring script helps), review `manifest plan`, and use the **existing receipt** for bootstrap. Never reinstall to migrate. On-host state is unchanged.
 
-For reference, the equivalent legacy install and bootstrap invocations are:
+For complete argument descriptions, see the [generated command reference](cli-reference.md). The equivalent legacy install and bootstrap invocations are:
 
 ```bash
 bash toolkit/deploy.sh install RECORD REPO FULL_COMMIT MACHINE_DIR HOST_OUTPUT PUSHED_BRANCH RECEIPT [REPORT_GENERATOR|- [RECOVERY_DIR|- [PRE_ERASE_CHECK|-]]]

@@ -1,0 +1,1408 @@
+{
+  "name": "deploy",
+  "describe": "Shared deployment toolkit; only install erases a disk.",
+  "author": null,
+  "version": null,
+  "aliases": [],
+  "flag_options": [
+    {
+      "id": "help",
+      "long_name": "--help",
+      "short_name": "-h",
+      "describe": "",
+      "flag": true,
+      "notations": [],
+      "required": false,
+      "multiple_values": false,
+      "multiple_occurs": false,
+      "num_args": [
+        0,
+        0
+      ],
+      "delimiter": null,
+      "terminated": false,
+      "prefixed": false,
+      "assigned": false,
+      "default": null,
+      "choice": null,
+      "env": null,
+      "inherited": false
+    },
+    {
+      "id": "version",
+      "long_name": "--version",
+      "short_name": "-V",
+      "describe": "",
+      "flag": true,
+      "notations": [],
+      "required": false,
+      "multiple_values": false,
+      "multiple_occurs": false,
+      "num_args": [
+        0,
+        0
+      ],
+      "delimiter": null,
+      "terminated": false,
+      "prefixed": false,
+      "assigned": false,
+      "default": null,
+      "choice": null,
+      "env": null,
+      "inherited": false
+    }
+  ],
+  "positionals": [],
+  "envs": [],
+  "subcommands": [
+    {
+      "name": "discover",
+      "describe": "Create a private discovery record for one whole disk",
+      "author": null,
+      "version": null,
+      "aliases": [],
+      "flag_options": [
+        {
+          "id": "help",
+          "long_name": "--help",
+          "short_name": "-h",
+          "describe": "",
+          "flag": true,
+          "notations": [],
+          "required": false,
+          "multiple_values": false,
+          "multiple_occurs": false,
+          "num_args": [
+            0,
+            0
+          ],
+          "delimiter": null,
+          "terminated": false,
+          "prefixed": false,
+          "assigned": false,
+          "default": null,
+          "choice": null,
+          "env": null,
+          "inherited": false
+        }
+      ],
+      "positionals": [
+        {
+          "id": "target",
+          "describe": "Root SSH target",
+          "notation": "TARGET",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "disk",
+          "describe": "Whole /dev disk",
+          "notation": "DISK",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "record",
+          "describe": "New private discovery record",
+          "notation": "FILE",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        }
+      ],
+      "envs": [],
+      "subcommands": [],
+      "command_fn": "discover"
+    },
+    {
+      "name": "preflight",
+      "describe": "Re-probe and compare the target with its discovery record",
+      "author": null,
+      "version": null,
+      "aliases": [],
+      "flag_options": [
+        {
+          "id": "help",
+          "long_name": "--help",
+          "short_name": "-h",
+          "describe": "",
+          "flag": true,
+          "notations": [],
+          "required": false,
+          "multiple_values": false,
+          "multiple_occurs": false,
+          "num_args": [
+            0,
+            0
+          ],
+          "delimiter": null,
+          "terminated": false,
+          "prefixed": false,
+          "assigned": false,
+          "default": null,
+          "choice": null,
+          "env": null,
+          "inherited": false
+        }
+      ],
+      "positionals": [
+        {
+          "id": "record",
+          "describe": "Private discovery record",
+          "notation": "FILE",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        }
+      ],
+      "envs": [],
+      "subcommands": [],
+      "command_fn": "preflight"
+    },
+    {
+      "name": "install",
+      "describe": "Build and install an exact pushed revision; erases the selected disk",
+      "author": null,
+      "version": null,
+      "aliases": [],
+      "flag_options": [
+        {
+          "id": "help",
+          "long_name": "--help",
+          "short_name": "-h",
+          "describe": "",
+          "flag": true,
+          "notations": [],
+          "required": false,
+          "multiple_values": false,
+          "multiple_occurs": false,
+          "num_args": [
+            0,
+            0
+          ],
+          "delimiter": null,
+          "terminated": false,
+          "prefixed": false,
+          "assigned": false,
+          "default": null,
+          "choice": null,
+          "env": null,
+          "inherited": false
+        }
+      ],
+      "positionals": [
+        {
+          "id": "record",
+          "describe": "Discovery record",
+          "notation": "FILE",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "repo",
+          "describe": "Clean consumer checkout",
+          "notation": "DIR",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "rev",
+          "describe": "Full pushed commit",
+          "notation": "REV",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "machine",
+          "describe": "Credential-free private inputs",
+          "notation": "DIR",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "host",
+          "describe": "NixOS output",
+          "notation": "HOST",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "branch",
+          "describe": "Pushed branch",
+          "notation": "BRANCH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "receipt",
+          "describe": "New off-host receipt",
+          "notation": "FILE",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "generator",
+          "describe": "Report generator, or -",
+          "notation": "FILE",
+          "required": false,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "recovery",
+          "describe": "Recovery tree, or -",
+          "notation": "DIR",
+          "required": false,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "pre_erase",
+          "describe": "Pre-erase check, or -",
+          "notation": "FILE",
+          "required": false,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        }
+      ],
+      "envs": [],
+      "subcommands": [],
+      "command_fn": "install"
+    },
+    {
+      "name": "bootstrap",
+      "describe": "Bootstrap the exact installed revision without erasing disks",
+      "author": null,
+      "version": null,
+      "aliases": [],
+      "flag_options": [
+        {
+          "id": "help",
+          "long_name": "--help",
+          "short_name": "-h",
+          "describe": "",
+          "flag": true,
+          "notations": [],
+          "required": false,
+          "multiple_values": false,
+          "multiple_occurs": false,
+          "num_args": [
+            0,
+            0
+          ],
+          "delimiter": null,
+          "terminated": false,
+          "prefixed": false,
+          "assigned": false,
+          "default": null,
+          "choice": null,
+          "env": null,
+          "inherited": false
+        }
+      ],
+      "positionals": [
+        {
+          "id": "receipt",
+          "describe": "Off-host receipt",
+          "notation": "FILE",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "repo",
+          "describe": "Consumer checkout",
+          "notation": "DIR",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "machine",
+          "describe": "Original private inputs",
+          "notation": "DIR",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "checkout",
+          "describe": "Remote checkout",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "remote_machine",
+          "describe": "Remote machine directory",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "state",
+          "describe": "Remote root-only state",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        }
+      ],
+      "envs": [],
+      "subcommands": [],
+      "command_fn": "bootstrap"
+    },
+    {
+      "name": "adopt",
+      "describe": "Adopt a verified legacy host without reinstalling",
+      "author": null,
+      "version": null,
+      "aliases": [],
+      "flag_options": [
+        {
+          "id": "help",
+          "long_name": "--help",
+          "short_name": "-h",
+          "describe": "",
+          "flag": true,
+          "notations": [],
+          "required": false,
+          "multiple_values": false,
+          "multiple_occurs": false,
+          "num_args": [
+            0,
+            0
+          ],
+          "delimiter": null,
+          "terminated": false,
+          "prefixed": false,
+          "assigned": false,
+          "default": null,
+          "choice": null,
+          "env": null,
+          "inherited": false
+        }
+      ],
+      "positionals": [
+        {
+          "id": "evidence",
+          "describe": "Operator-verified evidence",
+          "notation": "FILE",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "repo",
+          "describe": "Consumer checkout",
+          "notation": "DIR",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "machine",
+          "describe": "Original private inputs",
+          "notation": "DIR",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "host",
+          "describe": "NixOS output",
+          "notation": "HOST",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "checkout",
+          "describe": "Remote checkout",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "remote_machine",
+          "describe": "Remote machine directory",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "state",
+          "describe": "Remote state",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        }
+      ],
+      "envs": [],
+      "subcommands": [],
+      "command_fn": "adopt"
+    },
+    {
+      "name": "transition",
+      "describe": "Run a reviewed non-destructive candidate transition",
+      "author": null,
+      "version": null,
+      "aliases": [],
+      "flag_options": [
+        {
+          "id": "help",
+          "long_name": "--help",
+          "short_name": "-h",
+          "describe": "",
+          "flag": true,
+          "notations": [],
+          "required": false,
+          "multiple_values": false,
+          "multiple_occurs": false,
+          "num_args": [
+            0,
+            0
+          ],
+          "delimiter": null,
+          "terminated": false,
+          "prefixed": false,
+          "assigned": false,
+          "default": null,
+          "choice": null,
+          "env": null,
+          "inherited": false
+        }
+      ],
+      "positionals": [
+        {
+          "id": "receipt",
+          "describe": "Install receipt",
+          "notation": "FILE",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "target",
+          "describe": "Root SSH target",
+          "notation": "TARGET",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "checkout",
+          "describe": "Remote checkout",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "branch",
+          "describe": "Candidate branch",
+          "notation": "BRANCH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "new_machine",
+          "describe": "Reviewed private machine input",
+          "notation": "DIR",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "remote_machine",
+          "describe": "Remote machine directory",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "host",
+          "describe": "NixOS output",
+          "notation": "HOST",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "state",
+          "describe": "Remote state",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        }
+      ],
+      "envs": [],
+      "subcommands": [],
+      "command_fn": "transition"
+    },
+    {
+      "name": "poll",
+      "describe": "Poll the root-owned selector for a new revision (target-side)",
+      "author": null,
+      "version": null,
+      "aliases": [],
+      "flag_options": [
+        {
+          "id": "help",
+          "long_name": "--help",
+          "short_name": "-h",
+          "describe": "",
+          "flag": true,
+          "notations": [],
+          "required": false,
+          "multiple_values": false,
+          "multiple_occurs": false,
+          "num_args": [
+            0,
+            0
+          ],
+          "delimiter": null,
+          "terminated": false,
+          "prefixed": false,
+          "assigned": false,
+          "default": null,
+          "choice": null,
+          "env": null,
+          "inherited": false
+        }
+      ],
+      "positionals": [
+        {
+          "id": "repo",
+          "describe": "Target checkout",
+          "notation": "DIR",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "machine",
+          "describe": "Target private machine input",
+          "notation": "DIR",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "host",
+          "describe": "NixOS output",
+          "notation": "HOST",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "state",
+          "describe": "Root-only state",
+          "notation": "DIR",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        }
+      ],
+      "envs": [],
+      "subcommands": [],
+      "command_fn": "poll"
+    },
+    {
+      "name": "deploy",
+      "describe": "Switch to an explicitly selected revision (target-side)",
+      "author": null,
+      "version": null,
+      "aliases": [],
+      "flag_options": [
+        {
+          "id": "help",
+          "long_name": "--help",
+          "short_name": "-h",
+          "describe": "",
+          "flag": true,
+          "notations": [],
+          "required": false,
+          "multiple_values": false,
+          "multiple_occurs": false,
+          "num_args": [
+            0,
+            0
+          ],
+          "delimiter": null,
+          "terminated": false,
+          "prefixed": false,
+          "assigned": false,
+          "default": null,
+          "choice": null,
+          "env": null,
+          "inherited": false
+        }
+      ],
+      "positionals": [
+        {
+          "id": "repo",
+          "describe": "Target checkout",
+          "notation": "DIR",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "ref",
+          "describe": "commit:SHA or branch:NAME",
+          "notation": "REF",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "machine",
+          "describe": "Target private machine input",
+          "notation": "DIR",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "host",
+          "describe": "NixOS output",
+          "notation": "HOST",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "state",
+          "describe": "Root-only state",
+          "notation": "DIR",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        }
+      ],
+      "envs": [],
+      "subcommands": [],
+      "command_fn": "deploy"
+    },
+    {
+      "name": "migrate",
+      "describe": "Pin an existing installed revision in root-owned state",
+      "author": null,
+      "version": null,
+      "aliases": [],
+      "flag_options": [
+        {
+          "id": "help",
+          "long_name": "--help",
+          "short_name": "-h",
+          "describe": "",
+          "flag": true,
+          "notations": [],
+          "required": false,
+          "multiple_values": false,
+          "multiple_occurs": false,
+          "num_args": [
+            0,
+            0
+          ],
+          "delimiter": null,
+          "terminated": false,
+          "prefixed": false,
+          "assigned": false,
+          "default": null,
+          "choice": null,
+          "env": null,
+          "inherited": false
+        }
+      ],
+      "positionals": [
+        {
+          "id": "state",
+          "describe": "Root-only state",
+          "notation": "DIR",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "ref",
+          "describe": "Installed commit pin",
+          "notation": "REF",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        }
+      ],
+      "envs": [],
+      "subcommands": [],
+      "command_fn": "migrate"
+    },
+    {
+      "name": "manifest",
+      "describe": "Operate on a private off-host JSON manifest",
+      "author": null,
+      "version": null,
+      "aliases": [],
+      "flag_options": [
+        {
+          "id": "help",
+          "long_name": "--help",
+          "short_name": "-h",
+          "describe": "",
+          "flag": true,
+          "notations": [],
+          "required": false,
+          "multiple_values": false,
+          "multiple_occurs": false,
+          "num_args": [
+            0,
+            0
+          ],
+          "delimiter": null,
+          "terminated": false,
+          "prefixed": false,
+          "assigned": false,
+          "default": null,
+          "choice": null,
+          "env": null,
+          "inherited": false
+        }
+      ],
+      "positionals": [],
+      "envs": [],
+      "subcommands": [
+        {
+          "name": "plan",
+          "describe": "Review target, whole disk and exact pushed tip without installing",
+          "author": null,
+          "version": null,
+          "aliases": [],
+          "flag_options": [
+            {
+              "id": "help",
+              "long_name": "--help",
+              "short_name": "-h",
+              "describe": "",
+              "flag": true,
+              "notations": [],
+              "required": false,
+              "multiple_values": false,
+              "multiple_occurs": false,
+              "num_args": [
+                0,
+                0
+              ],
+              "delimiter": null,
+              "terminated": false,
+              "prefixed": false,
+              "assigned": false,
+              "default": null,
+              "choice": null,
+              "env": null,
+              "inherited": false
+            }
+          ],
+          "positionals": [
+            {
+              "id": "file",
+              "describe": "Mode-600 private manifest",
+              "notation": "FILE",
+              "required": true,
+              "multiple": false,
+              "delimiter": null,
+              "terminated": false,
+              "default": null,
+              "choice": null,
+              "env": null
+            }
+          ],
+          "envs": [],
+          "subcommands": [],
+          "command_fn": "manifest::plan"
+        },
+        {
+          "name": "install",
+          "describe": "Build and install from a reviewed manifest; erases the selected disk",
+          "author": null,
+          "version": null,
+          "aliases": [],
+          "flag_options": [
+            {
+              "id": "help",
+              "long_name": "--help",
+              "short_name": "-h",
+              "describe": "",
+              "flag": true,
+              "notations": [],
+              "required": false,
+              "multiple_values": false,
+              "multiple_occurs": false,
+              "num_args": [
+                0,
+                0
+              ],
+              "delimiter": null,
+              "terminated": false,
+              "prefixed": false,
+              "assigned": false,
+              "default": null,
+              "choice": null,
+              "env": null,
+              "inherited": false
+            }
+          ],
+          "positionals": [
+            {
+              "id": "file",
+              "describe": "Mode-600 private manifest",
+              "notation": "FILE",
+              "required": true,
+              "multiple": false,
+              "delimiter": null,
+              "terminated": false,
+              "default": null,
+              "choice": null,
+              "env": null
+            }
+          ],
+          "envs": [],
+          "subcommands": [],
+          "command_fn": "manifest::install"
+        },
+        {
+          "name": "bootstrap",
+          "describe": "Resume non-destructive bootstrap from a private manifest",
+          "author": null,
+          "version": null,
+          "aliases": [],
+          "flag_options": [
+            {
+              "id": "help",
+              "long_name": "--help",
+              "short_name": "-h",
+              "describe": "",
+              "flag": true,
+              "notations": [],
+              "required": false,
+              "multiple_values": false,
+              "multiple_occurs": false,
+              "num_args": [
+                0,
+                0
+              ],
+              "delimiter": null,
+              "terminated": false,
+              "prefixed": false,
+              "assigned": false,
+              "default": null,
+              "choice": null,
+              "env": null,
+              "inherited": false
+            }
+          ],
+          "positionals": [
+            {
+              "id": "file",
+              "describe": "Mode-600 private manifest",
+              "notation": "FILE",
+              "required": true,
+              "multiple": false,
+              "delimiter": null,
+              "terminated": false,
+              "default": null,
+              "choice": null,
+              "env": null
+            }
+          ],
+          "envs": [],
+          "subcommands": [],
+          "command_fn": "manifest::bootstrap"
+        },
+        {
+          "name": "transition",
+          "describe": "Apply a reviewed non-destructive transition",
+          "author": null,
+          "version": null,
+          "aliases": [],
+          "flag_options": [
+            {
+              "id": "help",
+              "long_name": "--help",
+              "short_name": "-h",
+              "describe": "",
+              "flag": true,
+              "notations": [],
+              "required": false,
+              "multiple_values": false,
+              "multiple_occurs": false,
+              "num_args": [
+                0,
+                0
+              ],
+              "delimiter": null,
+              "terminated": false,
+              "prefixed": false,
+              "assigned": false,
+              "default": null,
+              "choice": null,
+              "env": null,
+              "inherited": false
+            }
+          ],
+          "positionals": [
+            {
+              "id": "file",
+              "describe": "Mode-600 private manifest",
+              "notation": "FILE",
+              "required": true,
+              "multiple": false,
+              "delimiter": null,
+              "terminated": false,
+              "default": null,
+              "choice": null,
+              "env": null
+            }
+          ],
+          "envs": [],
+          "subcommands": [],
+          "command_fn": "manifest::transition"
+        }
+      ],
+      "command_fn": null
+    },
+    {
+      "name": "prepare-transition",
+      "describe": "Internal: prepare a reviewed transition upload (target-side)",
+      "author": null,
+      "version": null,
+      "aliases": [],
+      "flag_options": [
+        {
+          "id": "help",
+          "long_name": "--help",
+          "short_name": "-h",
+          "describe": "",
+          "flag": true,
+          "notations": [],
+          "required": false,
+          "multiple_values": false,
+          "multiple_occurs": false,
+          "num_args": [
+            0,
+            0
+          ],
+          "delimiter": null,
+          "terminated": false,
+          "prefixed": false,
+          "assigned": false,
+          "default": null,
+          "choice": null,
+          "env": null,
+          "inherited": false
+        }
+      ],
+      "positionals": [
+        {
+          "id": "repo",
+          "describe": "Remote checkout",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "machine",
+          "describe": "Remote machine",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "state",
+          "describe": "Remote state",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "rev",
+          "describe": "Installed revision",
+          "notation": "REV",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "sha",
+          "describe": "Installed machine hash",
+          "notation": "SHA",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        }
+      ],
+      "envs": [],
+      "subcommands": [],
+      "command_fn": "prepare-transition"
+    },
+    {
+      "name": "apply-transition",
+      "describe": "Internal: apply a reviewed candidate transition (target-side)",
+      "author": null,
+      "version": null,
+      "aliases": [],
+      "flag_options": [
+        {
+          "id": "help",
+          "long_name": "--help",
+          "short_name": "-h",
+          "describe": "",
+          "flag": true,
+          "notations": [],
+          "required": false,
+          "multiple_values": false,
+          "multiple_occurs": false,
+          "num_args": [
+            0,
+            0
+          ],
+          "delimiter": null,
+          "terminated": false,
+          "prefixed": false,
+          "assigned": false,
+          "default": null,
+          "choice": null,
+          "env": null,
+          "inherited": false
+        }
+      ],
+      "positionals": [
+        {
+          "id": "repo",
+          "describe": "Remote checkout",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "branch",
+          "describe": "Reviewed branch",
+          "notation": "BRANCH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "machine",
+          "describe": "Remote machine",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "host",
+          "describe": "NixOS output",
+          "notation": "HOST",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "state",
+          "describe": "Root-only state",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "reviewed",
+          "describe": "Reviewed machine input",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "rev",
+          "describe": "Installed revision",
+          "notation": "REV",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "sha",
+          "describe": "Installed machine hash",
+          "notation": "SHA",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        }
+      ],
+      "envs": [],
+      "subcommands": [],
+      "command_fn": "apply-transition"
+    }
+  ],
+  "command_fn": null
+}

@@ -6,7 +6,7 @@
       forOperator = system:
         let pkgs = nixpkgs.legacyPackages.${system}; in
         pkgs.mkShell {
-          packages = with pkgs; [ bash git jq openssh nix nixos-anywhere coreutils gnutar findutils ];
+          packages = with pkgs; [ bash git jq openssh nix nixos-anywhere coreutils gnutar findutils argc ];
         };
     in {
       nixosModules.update = import ./toolkit/update.nix;

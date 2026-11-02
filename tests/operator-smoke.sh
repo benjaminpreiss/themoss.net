@@ -14,6 +14,7 @@ shift 3 # options and target
 if [[ $* == *'cat /sys/class/net/'* ]]; then
   echo aa:bb:cc:dd:ee:ff
 elif [[ $* == bash\ -s\ --* || $* == tar\ -xf* ]]; then
+  cat >/dev/null # Drain the uploaded script/tar stream like a real SSH peer.
   echo "remote $*" >>"$MOCK_LOG"
 else
   printf '%s\n' x86_64 bios '[{"dev":"eth0"}]' '{"blockdevices":[{"path":"/dev/vda","type":"disk","size":1000,"model":"A","serial":"123"}]}'

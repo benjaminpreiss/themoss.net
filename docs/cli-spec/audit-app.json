@@ -1,0 +1,108 @@
+{
+  "name": "audit-app",
+  "describe": "Read-only GitHub App installation and scoped-token permission audit.",
+  "author": null,
+  "version": null,
+  "aliases": [],
+  "flag_options": [
+    {
+      "id": "help",
+      "long_name": "--help",
+      "short_name": "-h",
+      "describe": "",
+      "flag": true,
+      "notations": [],
+      "required": false,
+      "multiple_values": false,
+      "multiple_occurs": false,
+      "num_args": [
+        0,
+        0
+      ],
+      "delimiter": null,
+      "terminated": false,
+      "prefixed": false,
+      "assigned": false,
+      "default": null,
+      "choice": null,
+      "env": null,
+      "inherited": false
+    },
+    {
+      "id": "version",
+      "long_name": "--version",
+      "short_name": "-V",
+      "describe": "",
+      "flag": true,
+      "notations": [],
+      "required": false,
+      "multiple_values": false,
+      "multiple_occurs": false,
+      "num_args": [
+        0,
+        0
+      ],
+      "delimiter": null,
+      "terminated": false,
+      "prefixed": false,
+      "assigned": false,
+      "default": null,
+      "choice": null,
+      "env": null,
+      "inherited": false
+    }
+  ],
+  "positionals": [
+    {
+      "id": "app",
+      "describe": "Numeric GitHub App ID",
+      "notation": "APP-ID",
+      "required": true,
+      "multiple": false,
+      "delimiter": null,
+      "terminated": false,
+      "default": null,
+      "choice": null,
+      "env": null
+    },
+    {
+      "id": "key",
+      "describe": "Private App signing key path (never contents)",
+      "notation": "FILE",
+      "required": true,
+      "multiple": false,
+      "delimiter": null,
+      "terminated": false,
+      "default": null,
+      "choice": null,
+      "env": null
+    },
+    {
+      "id": "policy",
+      "describe": "Expected permissions JSON",
+      "notation": "FILE",
+      "required": true,
+      "multiple": false,
+      "delimiter": null,
+      "terminated": false,
+      "default": null,
+      "choice": null,
+      "env": null
+    },
+    {
+      "id": "repo",
+      "describe": "Calling repository",
+      "notation": "OWNER/REPO",
+      "required": true,
+      "multiple": false,
+      "delimiter": null,
+      "terminated": false,
+      "default": null,
+      "choice": null,
+      "env": null
+    }
+  ],
+  "envs": [],
+  "subcommands": [],
+  "command_fn": null
+}
