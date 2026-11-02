@@ -31,12 +31,17 @@ EOF
 cat >"$tmp/bin/nix" <<'EOF'
 #!/usr/bin/env bash
 echo "nix $*" >>"$MOCK_LOG"
+if [[ ${MOCK_TIP_MOVE:-0} == 1 ]]; then
+  git -C "$MOCK_SOURCE" commit --allow-empty -qm 'tip moved during build'
+  git -C "$MOCK_SOURCE" push -q origin HEAD:main
+fi
 [[ $MOCK_FAIL != build ]] || exit 1
 if [[ $* == *--print-out-paths* ]]; then echo /nix/store/synthetic-baseline; fi
 EOF
 cat >"$tmp/bin/nixos-rebuild" <<'EOF'
 #!/usr/bin/env bash
 echo "switch $*" >>"$MOCK_LOG"
+[[ ${MOCK_SWITCH_FAIL:-0} != 1 ]]
 EOF
 cat >"$tmp/bin/nixos-anywhere" <<'EOF'
 #!/usr/bin/env bash
@@ -154,21 +159,27 @@ git -C "$tmp/repo" checkout -q --orphan rewrite
 printf 'rewrite\n' >"$tmp/repo/version"
 git -C "$tmp/repo" add version; git -C "$tmp/repo" commit -qm rewritten
 git -C "$tmp/repo" push -q --force origin HEAD:main
-if transition >/dev/null 2>&1; then echo 'transition accepted divergent history' >&2; exit 1; fi
-[[ $(<"$tmp/remote/state/revision") == "$first" && $(<"$tmp/remote/machine/machine.nix") == candidate ]]
-git -C "$tmp/repo" reset -q --hard "$next"
-git -C "$tmp/repo" push -q --force origin HEAD:main
+# An explicit reviewed transition may rebaseline a squash/rebase without Disko.
 transition
 [[ $(<"$tmp/remote/state/revision") == $(git -C "$tmp/repo" rev-parse HEAD) ]]
 [[ $(<"$tmp/remote/machine/machine.nix") == production ]]
+[[ $(<"$tmp/remote/state/selector") == branch:main ]]
 ! grep -q 'unexpected timer call' "$tmp/log"
 [[ $(grep -c ERASE "$tmp/log") == 2 ]]
+git -C "$tmp/repo" reset -q --hard "$next"
+git -C "$tmp/repo" push -q --force origin HEAD:main
 : >"$tmp/log"
+chmod 700 "$tmp/state"
 printf '%s\n' "$first" >"$tmp/state/revision"
-MOCK_FAIL=build bash "$cli" update "$tmp/repo" main "$tmp/machine" test "$tmp/state" >/dev/null 2>&1 && { echo 'build failed open' >&2; exit 1; }
+printf 'commit:%s\n' "$first" >"$tmp/state/selector"; chmod 600 "$tmp/state/selector"
+: >"$tmp/log"
+bash "$cli" poll "$tmp/repo" "$tmp/machine" test "$tmp/state"
+[[ ! -s $tmp/log ]]
+printf 'branch:main\n' >"$tmp/state/selector" # fixture simulates reviewed selection
+MOCK_FAIL=build bash "$cli" poll "$tmp/repo" "$tmp/machine" test "$tmp/state" >/dev/null 2>&1 && { echo 'build failed open' >&2; exit 1; }
 [[ $(<"$tmp/state/revision") == "$first" ]]
 ! grep -q switch "$tmp/log"
-bash "$cli" update "$tmp/repo" main "$tmp/machine" test "$tmp/state"
+bash "$cli" poll "$tmp/repo" "$tmp/machine" test "$tmp/state"
 grep -q switch "$tmp/log"
 ! grep -q ERASE "$tmp/log"
 second=$(<"$tmp/state/revision")
@@ -177,14 +188,39 @@ second=$(<"$tmp/state/revision")
 [[ $(<"$tmp/generated/machine.nix") == candidate ]]
 rm "$tmp/machine/machine.nix"
 printf 'change2\n' >"$tmp/repo/version"; git -C "$tmp/repo" add version; git -C "$tmp/repo" commit -qm third; git -C "$tmp/repo" push -q origin HEAD:main
-bash "$cli" update "$tmp/repo" main "$tmp/machine" test "$tmp/state" >/dev/null 2>&1 && { echo 'missing config passed' >&2; exit 1; }
+bash "$cli" poll "$tmp/repo" "$tmp/machine" test "$tmp/state" >/dev/null 2>&1 && { echo 'missing config passed' >&2; exit 1; }
 [[ $(<"$tmp/state/revision") == "$second" ]]
+# A changed pushed tip between fetch and switch must not be installed.
+printf 'candidate\n' >"$tmp/machine/machine.nix"
+export MOCK_SOURCE="$tmp/repo" MOCK_TIP_MOVE=1
+printf 'branch:main\n' >"$tmp/state/selector"
+printf 'change3\n' >"$tmp/repo/version"; git -C "$tmp/repo" add version; git -C "$tmp/repo" commit -qm fourth; git -C "$tmp/repo" push -q origin HEAD:main
+if bash "$cli" poll "$tmp/repo" "$tmp/machine" test "$tmp/state" >/dev/null 2>&1; then echo 'accepted moving tip' >&2; exit 1; fi
+[[ $(<"$tmp/state/revision") == "$second" && ! -e $tmp/state/needs-inspection ]]
+export MOCK_TIP_MOVE=0
+# Only the selected branch is polled, regardless of pushes to main.
+git -C "$tmp/repo" push -q origin "$second":refs/heads/candidate
+printf 'branch:candidate\n' >"$tmp/state/selector"
+: >"$tmp/log"
+bash "$cli" poll "$tmp/repo" "$tmp/machine" test "$tmp/state"
+[[ ! -s $tmp/log && $(<"$tmp/state/revision") == "$second" ]]
+# Locks serialize manual deployments and polling, even when no build is needed.
+exec 8>"$tmp/state/lock"; flock -n 8
+if bash "$cli" poll "$tmp/repo" "$tmp/machine" test "$tmp/state" >/dev/null 2>&1; then echo 'concurrent poll passed' >&2; exit 1; fi
+if bash "$cli" deploy "$tmp/repo" "commit:$second" "$tmp/machine" test "$tmp/state" >/dev/null 2>&1; then echo 'concurrent deploy passed' >&2; exit 1; fi
+flock -u 8
+# A failed switch does not change state and blocks further automation.
+printf 'branch:main\n' >"$tmp/state/selector"
+MOCK_SWITCH_FAIL=1 bash "$cli" poll "$tmp/repo" "$tmp/machine" test "$tmp/state" >/dev/null 2>&1 && { echo 'failed switch passed' >&2; exit 1; }
+[[ $(<"$tmp/state/revision") == "$second" && $(<"$tmp/state/selector") == branch:main && -e $tmp/state/needs-inspection ]]
+if bash "$cli" poll "$tmp/repo" "$tmp/machine" test "$tmp/state" >/dev/null 2>&1; then echo 'uncertain switch retried' >&2; exit 1; fi
+rm "$tmp/state/needs-inspection" # fixture simulates operator recovery
 # Force a divergent origin (never accepted as a fast-forward).
 printf 'candidate\n' >"$tmp/machine/machine.nix"; chmod 600 "$tmp/machine/machine.nix"
 git -C "$tmp/repo" reset -q --hard "$first"
 printf 'other branch\n' >"$tmp/repo/version"; git -C "$tmp/repo" add version; git -C "$tmp/repo" commit -qm diverged
 git -C "$tmp/repo" push -q --force origin HEAD:main
-bash "$cli" update "$tmp/repo" main "$tmp/machine" test "$tmp/state" >/dev/null 2>&1 && { echo 'divergence passed' >&2; exit 1; }
+bash "$cli" poll "$tmp/repo" "$tmp/machine" test "$tmp/state" >/dev/null 2>&1 && { echo 'divergence passed' >&2; exit 1; }
 [[ $(<"$tmp/state/revision") == "$second" ]]
 # Legacy adoption: verified closure and private hashes, no install receipt.
 # An incomplete upload must not authorize polling (no revision file).
@@ -196,11 +232,16 @@ MOCK_RUNNING_SYSTEM=/nix/store/changed adopt >/dev/null 2>&1 && { echo 'adopted 
 [[ ! -e $tmp/legacy/state/revision ]]
 MOCK_UPLOAD_FAIL=1 adopt >/dev/null 2>&1 && { echo 'adopted incomplete upload' >&2; exit 1; }
 [[ ! -e $tmp/legacy/state/revision ]]
+bash "$cli" poll "$tmp/repo" "$tmp/machine" test "$tmp/legacy/state" >/dev/null 2>&1 && { echo 'poll accepted incomplete adoption' >&2; exit 1; }
 # The original commit is still reachable in the test origin's branch only if
 # restored; do not claim a rewritten branch is a verified legacy baseline.
 git -C "$tmp/repo" push -q --force origin "$first":main
 adopt
 [[ $(<"$tmp/legacy/state/revision") == "$first" ]]
+[[ $(<"$tmp/legacy/state/selector") == "commit:$first" ]]
+: >"$tmp/log"
+bash "$cli" poll "$tmp/legacy/repo" "$tmp/legacy/machine" test "$tmp/legacy/state"
+[[ ! -s $tmp/log ]]
 adopt # retry
 printf 'unrelated\n' >"$tmp/legacy/machine/facter.json"
 adopt >/dev/null 2>&1 && { echo 'adopt kept unexpected report' >&2; exit 1; }
@@ -218,8 +259,8 @@ adopt >/dev/null 2>&1 && { echo 'adopt replaced conflicting revision' >&2; exit 
 if command -v nix-instantiate >/dev/null; then
   for file in "$root"/examples/*.nix "$root"/toolkit/update.nix; do nix-instantiate --parse "$file" >/dev/null; done
 fi
-grep -q 'timer = false' "$root/examples/agentic.nix"
-grep -q 'timer = false' "$root/examples/thepeer.nix"
+! grep -q 'timer = false' "$root/examples/agentic.nix"
+! grep -q 'timer = false' "$root/examples/thepeer.nix"
 ! grep -q 'update --repo' "$root/toolkit/update.nix" || { echo 'module/CLI argument mismatch' >&2; exit 1; }
 bash "$root/tests/audit.sh"
 echo 'Bash fixture checks passed'

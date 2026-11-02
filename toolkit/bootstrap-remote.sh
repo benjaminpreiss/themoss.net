@@ -16,9 +16,13 @@ done
 [[ $(id -u) == 0 || ${THEMOSS_TEST_ROOT:-} == 1 ]] || fail 'root required'
 mkdir -p -m 700 "$state"
 [[ $(stat -c %a "$state") == 700 ]] || fail 'state must be mode 700'
-exec 9>"$state/bootstrap.lock"
+exec 9>"$state/lock"
 flock -n 9 || fail 'bootstrap already running'
-[[ ! -L $state/revision && ! -L $state/incoming ]] || fail 'linked state'
+[[ ! -L $state/revision && ! -L $state/selector && ! -L $state/incoming ]] || fail 'linked state'
+[[ ! -e $state/needs-inspection ]] || fail 'switch requires inspection'
+if [[ -e $state/selector ]]; then
+  [[ -f $state/selector && $(stat -c %a "$state/selector") == 600 && $(<"$state/selector") == "commit:$rev" ]] || fail 'selector differs from installed commit'
+fi
 # Re-running bootstrap may finish an interrupted attempt, but never replace a
 # different known-good revision or an unrelated source checkout.
 if [[ -e $state/revision ]]; then
@@ -71,8 +75,11 @@ for name in machine.nix facter.json; do
     mv -n -- "$machine/$name.tmp" "$machine/$name"
   fi
 done
-# Timer authorization belongs to the consumer's NixOS configuration. Commit
-# the revision last so a failed upload or clone cannot appear bootstrapped. Interrupted attempts can be retried with identical inputs.
+# Bootstrap defaults to a pin: the timer is active but cannot update until
+# an explicit deployment/transition selects a branch.
+printf 'commit:%s\n' "$rev" >"$state/selector.tmp"
+chmod 600 "$state/selector.tmp"
+mv -- "$state/selector.tmp" "$state/selector"
 printf '%s\n' "$rev" >"$state/revision.tmp"
 chmod 600 "$state/revision.tmp"
 mv -- "$state/revision.tmp" "$state/revision"

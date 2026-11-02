@@ -77,7 +77,7 @@ Bootstrap uploads original private files, checks out the **exact installed commi
 
 - **Interrupted?** Retry the same command; do not reinstall.
 - **Conflict?** Inspect files; bootstrap will not overwrite them.
-- **Test branch?** Keep the updater timer **off before first boot**. Bootstrap does not control timers.
+- **Test branch?** Polling fails closed before bootstrap. Bootstrap pins `commit:INSTALLED_SHA`; the timer cannot update until an operator selects a branch.
 
 After validation, see [updates and reviewed transitions](updates.md).
 
