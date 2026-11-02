@@ -39,7 +39,10 @@ fi
 [[ -f $state/incoming/machine.nix && ! -L $state/incoming/machine.nix ]] || fail 'missing machine.nix upload'
 for name in machine.nix facter.json; do
   src="$state/incoming/$name"
-  [[ -e $src ]] || continue
+  if [[ ! -e $src ]]; then
+    [[ ! -e $machine/$name && ! -L $machine/$name ]] || fail "unexpected existing $name"
+    continue
+  fi
   [[ -f $src && ! -L $src ]] || fail 'invalid uploaded file'
   if [[ -e $machine/$name || -L $machine/$name ]]; then
     [[ -f $machine/$name && ! -L $machine/$name ]] && cmp -s "$src" "$machine/$name" || fail "different existing $name"
