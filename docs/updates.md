@@ -59,6 +59,6 @@ jobs:
       APP_PRIVATE_KEY: ${{ secrets.UPDATE_APP_PRIVATE_KEY }}
 ```
 
-**Run it manually before scheduling.** The reusable job installs pinned Nix before running the commands. Those commands run **inside that job**, not in earlier caller steps: provide any other required toolchain through consumer configuration or the commands themselves. For example, the relay needs Cargo 1.95 rather than the runner default.
+**Run it manually before scheduling.** The reusable job installs Nix with pinned `cachix/install-nix-action` v31. The commands run **inside that job**, not in earlier caller steps; provide other toolchains in consumer configuration or the commands. For example, the relay needs Cargo 1.95 rather than the runner default.
 
-The workflow opens a PR and checks classic branch protection before requesting auto-merge. CI runs synthetic Nix command checks, but cannot verify a real host, your App credentials or scheduled updates. Test the pinned workflow in each consumer before relying on it.
+The workflow opens a PR and checks **classic branch protection** before requesting auto-merge; ruleset-only protection is not covered by this check. CI runs `bash tests/consumer-commands.sh` using a synthetic machine flake to check the Nix command shape. It cannot verify a real host, App authentication or scheduled execution. Test the pinned workflow with each consumer's actual locks, toolchains and App before relying on it.
