@@ -28,6 +28,40 @@ The pinned shell supplies GNU `stat`, `tar`, `sha256sum` and `nixos-anywhere`, r
 
 > 🧪 The smoke test mocks SSH and the installer. Linux CI tests the pinned shell; **native macOS still needs operator validation**. Target-side updates remain Linux-only.
 
+## Private operator manifest (pinned toolkit)
+
+Instead of repeating positional paths, create a **mode-600, Git-ignored** JSON file off-host (outside the checkout is simplest). No shell sourcing or secret contents. For example, relay-like and agentic-like consumers use the *same* keys; only values and consumer-owned policy differ:
+
+```json
+{
+  "version": 1, "target": "root@HOST", "disk": "/dev/vda",
+  "record": "/private/record.json", "repo": "/work/consumer",
+  "revision": "FULL_40_CHARACTER_PUSHED_COMMIT", "branch": "main",
+  "output": "HOST_OUTPUT", "machine": "/private/machine",
+  "receipt": "/private/install-receipt.json",
+  "remoteCheckout": "/root/consumer", "remoteMachine": "/root/private-machine",
+  "remoteState": "/var/lib/themoss",
+  "preEraseCheck": "/private/check-evaluated-config"
+}
+```
+
+`reportGenerator` and `recoveryDir` are optional consumer-owned executable/tree paths (see below). Omit optional fields rather than using `-`. No application-specific fields or credentials are accepted. The manifest must not enter Git, Nix, the staged flake, or the target. `machine.nix` and `facter.json` must contain **no credentials** because they enter the world-readable store; the parser cannot prove this, so inspect them and the evaluated configuration. Keep SSH keys in the separate recovery tree.
+
+```bash
+chmod 600 /private/operator.json
+bash toolkit/deploy.sh manifest plan /private/operator.json
+bash toolkit/deploy.sh manifest install /private/operator.json
+# Verify the NEW SSH host key out of band first; retry after interruption:
+bash toolkit/deploy.sh manifest bootstrap /private/operator.json
+# Later, add "newMachine": "/private/reviewed-machine" and
+# "candidateBranch": "reviewed-branch" to the manifest:
+bash toolkit/deploy.sh manifest transition /private/operator.json
+```
+
+`plan` re-probes and prints target/NIC/disk identity, pushed tip, output and paths; review it against provider console and consumer policy. `install` repeats the plan, builds staged source, runs the consumer pre-erase check if supplied, requires **typed erase confirmation**, then re-probes and re-verifies the tip. For consumers whose policy requires a pre-erase check, configure `preEraseCheck`: it is not inferred by the toolkit. A manifest does not authorize a disk by itself: `disk` and `target` must agree with the mode-600 discovery record. After installation, target, baseline branch/revision, origin and machine hashes are bound to the receipt; do not edit them to repair a mismatch. For transition only, `candidateBranch` and `newMachine` may differ from the installed baseline, after independent review. Target-side `poll`/`deploy` continue using root-owned selector/revision and existing positional commands, not an operator manifest.
+
+Existing pinned consumers can keep using the positional commands below. To migrate, record their exact arguments in the JSON, verify the plan, and bootstrap using the **existing** receipt; never reinstall to migrate. The manifest does not change the on-host format or copy anything to the host.
+
 ## Fresh install
 
 ### 1. Discover and review

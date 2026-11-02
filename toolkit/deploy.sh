@@ -9,7 +9,7 @@ set -euo pipefail
 export LC_ALL=C
 umask 077
 fail() { echo "themoss: $*" >&2; exit 1; }
-usage() { fail 'usage: deploy.sh discover TARGET DISK RECORD | preflight RECORD | install RECORD REPO REV MACHINE_DIR HOST BRANCH RECEIPT [REPORT_GENERATOR|- [RECOVERY_DIR|- [PRE_ERASE_CHECK|-]]] | bootstrap RECEIPT REPO MACHINE_DIR REMOTE_CHECKOUT REMOTE_MACHINE REMOTE_STATE | adopt EVIDENCE REPO MACHINE_DIR HOST REMOTE_CHECKOUT REMOTE_MACHINE REMOTE_STATE | poll REPO MACHINE_DIR HOST STATE_DIR | deploy REPO REF MACHINE_DIR HOST STATE_DIR | transition RECEIPT TARGET REMOTE_CHECKOUT BRANCH NEW_MACHINE_DIR REMOTE_MACHINE HOST REMOTE_STATE | migrate STATE_DIR REF'; }
+usage() { fail 'usage: deploy.sh manifest {plan|install|bootstrap|transition} PRIVATE_JSON | discover TARGET DISK RECORD | preflight RECORD | install RECORD REPO REV MACHINE_DIR HOST BRANCH RECEIPT [REPORT_GENERATOR|- [RECOVERY_DIR|- [PRE_ERASE_CHECK|-]]] | bootstrap RECEIPT REPO MACHINE_DIR REMOTE_CHECKOUT REMOTE_MACHINE REMOTE_STATE | adopt EVIDENCE REPO MACHINE_DIR HOST REMOTE_CHECKOUT REMOTE_MACHINE HOST REMOTE_STATE | poll REPO MACHINE_DIR HOST STATE_DIR | deploy REPO REF MACHINE_DIR HOST STATE_DIR | transition RECEIPT TARGET REMOTE_CHECKOUT BRANCH NEW_MACHINE_DIR REMOTE_MACHINE HOST REMOTE_STATE | migrate STATE_DIR REF'; }
 [[ $# -ge 1 ]] || usage
 op=$1; shift
 
@@ -131,6 +131,78 @@ verify_tip() {
   [[ $(git -C "$1" ls-remote --exit-code origin "refs/heads/$2" | cut -f1) == "$3" ]] || fail 'branch tip changed during deployment; retry'
 }
 case $op in
+  manifest)
+    [[ $# == 2 ]] || usage
+    task=$1 manifest=$2
+    [[ $task == plan || $task == install || $task == bootstrap || $task == transition ]] || usage
+    [[ -f $manifest && ! -L $manifest && $(stat -c %a "$manifest") == 600 ]] || fail 'manifest must be a mode-600 regular file (not a link)'
+    [[ $(realpath -m "$manifest") == "$(realpath "$manifest")" ]] || fail 'linked manifest path'
+    # Off-host state must never be committed or staged in the consumer source.
+    jq -e '
+      type == "object" and (.version == 1) and
+      ((keys - ["version","target","disk","record","repo","revision","branch","output","machine","receipt","remoteCheckout","remoteMachine","remoteState","reportGenerator","recoveryDir","preEraseCheck","newMachine","candidateBranch"]) == []) and
+      ([.target,.disk,.record,.repo,.revision,.branch,.output,.machine,.receipt,.remoteCheckout,.remoteMachine,.remoteState] | all(type == "string" and length > 0)) and
+      (. as $m | ["reportGenerator","recoveryDir","preEraseCheck","newMachine","candidateBranch"] | all(. as $key | ($m | has($key) | not) or ($m[$key] | type == "string" and length > 0)))
+    ' "$manifest" >/dev/null || fail 'invalid manifest schema'
+    # Do not accept a tracked or unignored manifest inside the consumer checkout.
+    repo=$(jq -r .repo "$manifest")
+    [[ -d $repo && ! -L $repo && $(realpath -m "$repo") == "$(realpath "$repo")" ]] || fail 'invalid checkout'
+    manifest_abs=$(realpath "$manifest")
+    repo_abs=$(realpath "$repo")
+    if [[ $manifest_abs == "$repo_abs/"* ]]; then
+      relative=${manifest_abs#"$repo_abs/"}
+      git -C "$repo" check-ignore -q -- "$relative" || fail 'manifest inside checkout must be Git-ignored'
+      [[ -z $(git -C "$repo" ls-files -- "$relative") ]] || fail 'tracked manifest'
+    fi
+    target=$(jq -r .target "$manifest") disk=$(jq -r .disk "$manifest")
+    record=$(jq -r .record "$manifest") rev=$(jq -r .revision "$manifest")
+    branch=$(jq -r .branch "$manifest") output=$(jq -r .output "$manifest")
+    machine=$(jq -r .machine "$manifest") receipt=$(jq -r .receipt "$manifest")
+    checkout=$(jq -r .remoteCheckout "$manifest")
+    remote_machine=$(jq -r .remoteMachine "$manifest") state=$(jq -r .remoteState "$manifest")
+    generator=$(jq -r '.reportGenerator // "-"' "$manifest")
+    recovery=$(jq -r '.recoveryDir // "-"' "$manifest")
+    pre_erase=$(jq -r '.preEraseCheck // "-"' "$manifest")
+    new_machine=$(jq -r '.newMachine // ""' "$manifest")
+    candidate=$(jq -r '.candidateBranch // ""' "$manifest")
+    [[ $target =~ ^root@[a-zA-Z0-9_.:-]+$ && $disk =~ ^/dev/[a-zA-Z0-9_./-]+$ && $disk != *..* ]] || fail 'invalid target or disk'
+    [[ $rev =~ ^[0-9a-f]{40}$ && $output =~ ^[a-zA-Z0-9_-]+$ ]] || fail 'invalid revision or output'
+    valid_ref "branch:$branch" || fail 'invalid branch'
+    for path in "$record" "$machine" "$receipt"; do
+      [[ $path == /* && $path != *..* ]] || fail 'private paths must be absolute without traversal'
+    done
+    for path in "$checkout" "$remote_machine" "$state"; do
+      [[ $path =~ ^/[a-zA-Z0-9_./-]+$ && $path != *..* ]] || fail 'unsafe remote path'
+    done
+    private_record "$record"
+    [[ $target == "$(jq -r .target "$record")" && $disk == "$(jq -r .disk.path "$record")" ]] || fail 'manifest differs from discovery record'
+    [[ -f $machine/machine.nix && ! -L $machine && ! -L $machine/machine.nix && $(stat -c %a "$machine/machine.nix") == 600 ]] || fail 'unsafe private machine.nix'
+    if [[ $task == plan || $task == install ]]; then
+      [[ ! -e $receipt && ! -L $receipt ]] || fail 'install receipt already exists; never reinstall to repair bootstrap'
+      [[ $repo == /* && $machine == /* ]] || fail 'checkout and machine paths must be absolute'
+      [[ $(git -C "$repo" ls-remote --exit-code origin "refs/heads/$branch" | cut -f1) == "$rev" ]] || fail 'revision differs from pushed branch tip'
+      bash "${BASH_SOURCE[0]}" preflight "$record"
+      printf 'Reviewed install plan: pushed revision=%s branch=%s output=%s\n' "$rev" "$branch" "$output"
+      printf 'Paths: repo=%s machine=%s receipt=%s remote checkout=%s machine=%s state=%s\n' "$repo" "$machine" "$receipt" "$checkout" "$remote_machine" "$state"
+      printf 'Consumer checks: report=%s recovery=%s pre-erase=%s\n' "$generator" "$recovery" "$pre_erase"
+      [[ $task == plan ]] && exit 0
+      bash "${BASH_SOURCE[0]}" install "$record" "$repo" "$rev" "$machine" "$output" "$branch" "$receipt" "$generator" "$recovery" "$pre_erase"
+    else
+      [[ -f $receipt && ! -L $receipt && $(stat -c %a "$receipt") == 600 ]] || fail 'missing private receipt'
+      [[ $target == "$(jq -er .target "$receipt")" && $rev == "$(jq -er .revision "$receipt")" && $branch == "$(jq -er .branch "$receipt")" ]] || fail 'manifest differs from install receipt'
+      [[ $(git -C "$repo" remote get-url origin) == "$(jq -er .origin "$receipt")" ]] || fail 'origin differs from install receipt'
+      case $task in
+        bootstrap) bash "${BASH_SOURCE[0]}" bootstrap "$receipt" "$repo" "$machine" "$checkout" "$remote_machine" "$state" ;;
+        transition)
+          [[ -n $new_machine && $new_machine == /* && $new_machine != *..* ]] || fail 'transition needs an absolute newMachine path'
+          # The installed branch is a baseline; the requested candidate branch
+          # may change, but target, revision and original machine may not.
+          valid_ref "branch:$candidate" || fail 'transition needs a valid candidateBranch'
+          printf 'Reviewed transition: target=%s baseline=%s candidate=%s output=%s newMachine=%s remote=%s\n' "$target" "$rev" "$candidate" "$output" "$new_machine" "$state"
+          bash "${BASH_SOURCE[0]}" transition "$receipt" "$target" "$checkout" "$candidate" "$new_machine" "$remote_machine" "$output" "$state" ;;
+      esac
+    fi
+    ;;
   discover)
     [[ $# == 3 ]] || usage
     target=$1 disk=$2 record=$3

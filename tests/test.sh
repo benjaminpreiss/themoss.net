@@ -70,13 +70,41 @@ git -C "$tmp/repo" remote add origin "$tmp/origin.git"
 receipt="$tmp/install-receipt.json"
 printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/machine" test main "$receipt" >/dev/null 2>&1 && exit 1
 git -C "$tmp/repo" push -q origin HEAD:main
+# Two synthetic consumer policies share the manifest schema, not application fields.
+for consumer in relay agentic; do
+  manifest="$tmp/$consumer.json"
+  jq -n --arg target root@example --arg disk /dev/vda --arg record "$tmp/record" \
+    --arg repo "$tmp/repo" --arg revision "$first" --arg machine "$tmp/machine" \
+    --arg receipt "$tmp/$consumer-receipt" --arg base "$tmp/$consumer-remote" \
+    '{version:1,target:$target,disk:$disk,record:$record,repo:$repo,revision:$revision,
+      branch:"main",output:"test",machine:$machine,receipt:$receipt,
+      remoteCheckout:($base+"/repo"),remoteMachine:($base+"/machine"),remoteState:($base+"/state")}' >"$manifest"
+  chmod 600 "$manifest"
+  bash "$cli" manifest plan "$manifest" | grep -q 'pushed revision='
+  jq '.disk = "/dev/sda"' "$manifest" >"$tmp/bad.json"; chmod 600 "$tmp/bad.json"
+  ! bash "$cli" manifest install "$tmp/bad.json" </dev/null >/dev/null 2>&1
+  jq '.target = "root@other"' "$manifest" >"$tmp/bad.json"
+  ! bash "$cli" manifest install "$tmp/bad.json" </dev/null >/dev/null 2>&1
+  jq '.remoteState = "/tmp/../oops"' "$manifest" >"$tmp/bad.json"
+  ! bash "$cli" manifest install "$tmp/bad.json" </dev/null >/dev/null 2>&1
+  printf 'no\n' | bash "$cli" manifest install "$manifest" >/dev/null 2>&1 && exit 1
+  printf 'ERASE /dev/vda\n' | bash "$cli" manifest install "$manifest"
+  export MOCK_UPLOAD_FAIL=1
+  ! bash "$cli" manifest bootstrap "$manifest" >/dev/null 2>&1
+  [[ ! -e $tmp/$consumer-remote/state/revision ]]
+  export MOCK_UPLOAD_FAIL=0
+  bash "$cli" manifest bootstrap "$manifest"
+  bash "$cli" manifest bootstrap "$manifest"
+  jq '.target = "root@other"' "$manifest" >"$tmp/bad.json"
+  ! bash "$cli" manifest bootstrap "$tmp/bad.json" >/dev/null 2>&1
+done
 printf 'no\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/machine" test main "$receipt" > /dev/null 2>&1 && { echo 'confirmation bypass' >&2; exit 1; }
 [[ ! -e $receipt ]]
 ! grep -q ERASE "$tmp/log"
 printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/machine" test main "$receipt"
 [[ $(jq -r .revision "$receipt") == "$first" && $(stat -c %a "$receipt") == 600 ]]
 if printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/machine" test main "$receipt" >/dev/null 2>&1; then echo 'replaced receipt' >&2; exit 1; fi
-[[ $(grep -c ERASE "$tmp/log") == 1 ]]
+[[ $(grep -c ERASE "$tmp/log") == 3 ]]
 # Consumer-owned report generator, pre-erase evaluated check and separate
 # recovery tree. No recovery material may enter the staged Nix flake.
 mkdir "$tmp/generated" "$tmp/recovery"
@@ -99,10 +127,10 @@ printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$firs
 [[ $(jq -r .facterSha256 "$tmp/report-receipt") == "$(sha256sum "$tmp/generated/facter.json" | cut -d ' ' -f1)" ]]
 grep -q -- '--extra-files' "$tmp/log"
 if printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/generated" test main "$tmp/report-receipt2" "$tmp/generator" >/dev/null 2>&1; then echo 'overwrote report' >&2; exit 1; fi
-[[ $(grep -c ERASE "$tmp/log") == 2 ]]
+[[ $(grep -c ERASE "$tmp/log") == 4 ]]
 printf '#!/usr/bin/env bash\nexit 1\n' >"$tmp/reject-check"; chmod +x "$tmp/reject-check"
 printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/generated" test main "$tmp/rejected-receipt" - - "$tmp/reject-check" >/dev/null 2>&1 && { echo 'pre-erase validation bypassed' >&2; exit 1; }
-[[ $(grep -c ERASE "$tmp/log") == 2 && ! -e $tmp/rejected-receipt ]]
+[[ $(grep -c ERASE "$tmp/log") == 4 && ! -e $tmp/rejected-receipt ]]
 cat >"$tmp/bin/systemctl" <<'EOF'
 #!/usr/bin/env bash
 echo "unexpected timer call $*" >>"$MOCK_LOG"
@@ -165,7 +193,7 @@ transition
 [[ $(<"$tmp/remote/machine/machine.nix") == production ]]
 [[ $(<"$tmp/remote/state/selector") == branch:main ]]
 ! grep -q 'unexpected timer call' "$tmp/log"
-[[ $(grep -c ERASE "$tmp/log") == 2 ]]
+[[ $(grep -c ERASE "$tmp/log") == 4 ]]
 git -C "$tmp/repo" reset -q --hard "$next"
 git -C "$tmp/repo" push -q --force origin HEAD:main
 : >"$tmp/log"
