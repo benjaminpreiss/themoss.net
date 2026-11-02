@@ -70,6 +70,13 @@ git -C "$tmp/repo" remote add origin "$tmp/origin.git"
 receipt="$tmp/install-receipt.json"
 printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/machine" test main "$receipt" >/dev/null 2>&1 && exit 1
 git -C "$tmp/repo" push -q origin HEAD:main
+# Exercise the interactive authoring flow through a synthetic terminal when available.
+printf '%s\n\n/dev/vda\n%s\n\nmain\ntest\n%s\n\n\n\n\n\n\n\n' "$tmp/record" "$tmp/repo" "$tmp/machine" | \
+  THEMOSS_TEST_INPUT=1 bash "$root/toolkit/new-operator-manifest.sh" "$tmp/authored.json" >/dev/null
+[[ $(stat -c %a "$tmp/authored.json") == 600 ]]
+jq -e --arg rev "$first" '.disk == "/dev/vda" and .revision == $rev and .output == "test"' "$tmp/authored.json" >/dev/null
+bash "$cli" manifest plan "$tmp/authored.json" >/dev/null
+! bash "$root/toolkit/new-operator-manifest.sh" "$tmp/authored.json" </dev/null >/dev/null 2>&1
 # Two synthetic consumer policies share the manifest schema, not application fields.
 for consumer in relay agentic; do
   manifest="$tmp/$consumer.json"

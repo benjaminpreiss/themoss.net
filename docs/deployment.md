@@ -47,8 +47,10 @@ Instead of repeating positional paths, create a **mode-600, Git-ignored** JSON f
 
 `reportGenerator` and `recoveryDir` are optional consumer-owned executable/tree paths (see below). Omit optional fields rather than using `-`. No application-specific fields or credentials are accepted. The manifest must not enter Git, Nix, the staged flake, or the target. `machine.nix` and `facter.json` must contain **no credentials** because they enter the world-readable store; the parser cannot prove this, so inspect them and the evaluated configuration. Keep SSH keys in the separate recovery tree.
 
+Generate the file interactively (the wizard reads an existing discovery record and **requires you to type the disk path**, even though it shows the recorded disk). It suggests the checkout HEAD as a commit default; `plan` verifies that commit is the exact pushed branch tip. The wizard never runs install or copies anything to the host:
+
 ```bash
-chmod 600 /private/operator.json
+bash toolkit/new-operator-manifest.sh /private/operator.json
 bash toolkit/deploy.sh manifest plan /private/operator.json
 bash toolkit/deploy.sh manifest install /private/operator.json
 # Verify the NEW SSH host key out of band first; retry after interruption:
