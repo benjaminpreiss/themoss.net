@@ -8,13 +8,25 @@
 2. **Keep secrets out of Nix.** `machine.nix` and `facter.json` may enter the world-readable store. Keep credentials in a separate recovery tree or private target state.
 3. **Preserve evidence.** Back up original machine facts and receipts off-host. A mismatch stops the process; neither install nor adoption repairs it silently.
 
-The consumer owns machine generation, supported hardware, Disko and application modules, SSH keys, recovery files, evaluated pre-erase checks, branch and update policy. The toolkit owns target re-probing, staging, typed erase confirmation, the sole installer call and guarded bootstrap. See [manual agentic](../examples/agentic.nix) and [scheduled relay](../examples/thepeer.nix) examples.
+**Who owns what?**
+
+- **Consumer:** machine generation, supported hardware, Disko and applications, SSH keys, recovery files, evaluated checks, branch and update policy.
+- **Toolkit:** re-probe, stage, require typed erase confirmation, invoke the sole installer, bootstrap.
+
+See [manual agentic](../examples/agentic.nix) and [scheduled relay](../examples/thepeer.nix).
 
 ## Operator environment
 
-**On a Mac:** use an x86_64/aarch64 Linux VM with Nix (flakes enabled) and SSH access to the target. Native macOS is not tested: off-host scripts currently use GNU `stat`, `tar` and `sha256sum`. In the VM, check out a reviewed toolkit commit, verify its `flake.lock`, then run `nix develop --no-write-lock-file .#operator`. The locked shell provides `nixos-anywhere` and other operator tools. Keep the consumer's pinned source and private inputs in the VM, outside Git and the Nix store. Target-side updates remain Linux-only.
+**Linux or macOS:** install Nix with flakes enabled; check out a reviewed toolkit commit and verify its committed `flake.lock`. Then:
 
-CI tests this pinned shell and synthetic commands, **not** a live install.
+```bash
+nix develop --no-write-lock-file .#operator
+bash tests/operator-smoke.sh
+```
+
+The pinned shell supplies GNU `stat`, `tar`, `sha256sum` and `nixos-anywhere`, rather than relying on macOS system utilities. On macOS, configure a **Linux Nix builder** for the NixOS pre-build (`nix build`) before installation; building a Linux closure locally on macOS is not supported. A Linux VM with Nix is an alternative if you cannot provide a builder. Keep private inputs outside Git and the Nix store.
+
+> 🧪 The smoke test mocks SSH and the installer. Linux CI tests the pinned shell; **native macOS still needs operator validation**. Target-side updates remain Linux-only.
 
 ## Fresh install
 
@@ -27,7 +39,7 @@ bash toolkit/deploy.sh discover root@HOST /dev/vda generated/record.json
 bash toolkit/deploy.sh preflight generated/record.json
 ```
 
-Compare the private record's architecture, boot mode, NIC/MAC and **whole disk** with the provider console. Prepare `generated/machine.nix` and, if needed, `generated/facter.json`; neither may contain credentials.
+Review the private record against the console: **architecture, boot mode, NIC/MAC, whole disk**. Prepare credential-free `generated/machine.nix` and optional `generated/facter.json`.
 
 ### 2. Install the pushed commit
 
@@ -45,9 +57,13 @@ Optional consumer inputs, in positional order:
 | `RECOVERY_DIR` | Private, root-relative `nixos-anywhere --extra-files` tree (for example `etc/ssh/ssh_host_ed25519_key`, mode 600). It is **not staged in the flake**. The toolkit rejects symlinks but does not create or rotate credentials. |
 | `PRE_ERASE_CHECK` | Executable receiving `STAGED_FLAKE HOST_OUTPUT RECORD` after build; compare *evaluated* Disko, boot and network choices with the record. Nonzero exit stops before confirmation. |
 
-Use `-` to skip an earlier option. The toolkit requires a clean checkout and the exact pushed branch head, builds it, runs the optional check, re-probes the target and asks you to type `ERASE /dev/vda`. Only then does it invoke `nixos-anywhere`.
+Use `-` to skip an earlier option. Before the installer, the toolkit:
 
-**Save the private `generated/install-receipt.json` off-host.** It binds target, origin, revision and machine-file hashes. If installation succeeds but writing the receipt fails, **stop** and inspect the installed revision via console. Do not reinstall to mint a receipt.
+1. Requires a clean checkout at the exact pushed branch head.
+2. Builds, runs the optional check and re-probes the target.
+3. Requires you to type `ERASE /dev/vda`.
+
+**Back up `generated/install-receipt.json` off-host.** It binds target, origin, revision and machine-file hashes. If the installer succeeded but the receipt was not written, **stop**: inspect the installed revision via console. Never reinstall just to mint a receipt.
 
 ### 3. Bootstrap
 
@@ -57,7 +73,13 @@ Verify the **new installed** SSH host key through the console before changing `k
 bash toolkit/deploy.sh bootstrap generated/install-receipt.json /path/to/consumer generated /root/consumer /root/private-machine /var/lib/themoss
 ```
 
-Bootstrap uploads the original private files, checks out the **exact installed commit** and writes the root-only known-good revision last. Retry interrupted uploads with the same command; inspect conflicting files rather than overwriting them. For a test-branch install, keep the updater timer **off before first boot**; bootstrap does not control timers. After host validation, see [updates and reviewed transitions](updates.md).
+Bootstrap uploads original private files, checks out the **exact installed commit** and writes the root-only known-good revision **last**.
+
+- **Interrupted?** Retry the same command; do not reinstall.
+- **Conflict?** Inspect files; bootstrap will not overwrite them.
+- **Test branch?** Keep the updater timer **off before first boot**. Bootstrap does not control timers.
+
+After validation, see [updates and reviewed transitions](updates.md).
 
 ## Existing host: adopt without reinstalling
 
@@ -81,6 +103,10 @@ Bootstrap uploads the original private files, checks out the **exact installed c
    bash toolkit/deploy.sh adopt /private/evidence.json /path/to/consumer /private/machine HOST_OUTPUT /root/consumer /root/private-machine /var/lib/themoss
    ```
 
-`adopt` builds the pinned output, compares its store path to the evidence **and** running host, then reuses the guarded, retryable root-only bootstrap. It does **not prove historical inputs**; that depends on your independent records. Missing evidence, differing closures or conflicting target state require investigation, not a guessed revision. Until bootstrap writes the known-good revision, polling fails closed. Enable branch tracking only in a later reviewed transition. **Adoption changes neither disks nor the running system.**
+`adopt` compares a build of the pinned output with **both** the evidence and the running host, then bootstraps root-only state. It **cannot prove historical inputs** without your independent records.
 
-Before updating the toolkit itself, pin a full commit in the consumer's flake and test that consumer's OS. `bash tests/test.sh` exercises mocks, not real hardware.
+- **Mismatch or missing evidence?** Stop; never invent a revision or overwrite existing state.
+- **Interrupted?** Retry with the same evidence. Polling fails closed until the known-good revision exists.
+- **Ready to track a branch?** Enable it in a later reviewed transition, not during adoption.
+
+**Adoption changes neither disks nor the running system.** Before upgrading the toolkit, pin a full commit in the consumer flake and test that OS. `bash tests/test.sh` uses mocks, not real hardware.
