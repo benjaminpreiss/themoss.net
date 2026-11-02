@@ -28,94 +28,102 @@ The pinned shell supplies GNU `stat`, `tar`, `sha256sum` and `nixos-anywhere`, r
 
 > 🧪 The smoke test mocks SSH and the installer. Linux CI tests the pinned shell; **native macOS still needs operator validation**. Target-side updates remain Linux-only.
 
-## Private operator manifest (pinned toolkit)
+## Fresh install: the short path
 
-Instead of repeating positional paths, create a **mode-600, Git-ignored** JSON file off-host (outside the checkout is simplest). No shell sourcing or secret contents. For example, relay-like and agentic-like consumers use the *same* keys; only values and consumer-owned policy differ:
+> 🛑 **First verify the rescue SSH host key in the provider console.** Keep the discovery record, manifest and receipt off-host. Do not run these commands against an unverified machine.
+
+### 1. Discover the machine
+
+```bash
+bash toolkit/deploy.sh discover root@HOST /dev/vda /private/record.json
+bash toolkit/deploy.sh preflight /private/record.json
+```
+
+Compare **architecture, boot mode, NIC/MAC and whole-disk identity** with the console. Prepare a credential-free `/private/machine/machine.nix` (and optional `facter.json`). Review, commit and push the consumer configuration before proceeding.
+
+### 2. Create and review the operator manifest
+
+```bash
+bash toolkit/new-operator-manifest.sh /private/operator.json
+bash toolkit/deploy.sh manifest plan /private/operator.json
+```
+
+The interactive script suggests the record's target, checkout HEAD and conventional private/remote paths. **It requires you to type the disk path** after checking the console; it never installs anything. The resulting JSON is mode 600. Keep it outside Git (or Git-ignored), Nix and the target.
+
+`plan` re-probes and displays the target, NIC, **disk identity**, exact pushed branch tip, output and relevant paths. Stop if anything differs from your review. The record and manifest must agree on target and disk; the manifest alone does *not* authorize an erase.
+
+### 3. Install, then bootstrap
+
+```bash
+bash toolkit/deploy.sh manifest install /private/operator.json
+# Verify the NEW installed SSH host key via the console before continuing.
+bash toolkit/deploy.sh manifest bootstrap /private/operator.json
+```
+
+**Only `install` is destructive.** It repeats the plan, stages and builds the pushed revision, runs the consumer's pre-erase check if configured, requires you to type `ERASE /dev/vda`, then re-probes and re-verifies the pushed tip before calling the installer.
+
+Back up `/private/install-receipt.json` off-host: it binds the target, origin, revision and machine-file hashes. If installation succeeds but the receipt is missing, **stop and inspect via console**—never reinstall to make a receipt. Bootstrap checks out the exact installed commit and writes root-only known-good state *last*. If interrupted, retry bootstrap with the same manifest; on conflict, inspect rather than overwrite. Polling fails closed until bootstrap completes.
+
+After host validation, see [updates and reviewed transitions](updates.md).
+
+### What goes in the manifest?
+
+<details>
+<summary>Example: shared fields for relay-like or agentic-like consumers</summary>
 
 ```json
 {
-  "version": 1, "target": "root@HOST", "disk": "/dev/vda",
-  "record": "/private/record.json", "repo": "/work/consumer",
-  "revision": "FULL_40_CHARACTER_PUSHED_COMMIT", "branch": "main",
-  "output": "HOST_OUTPUT", "machine": "/private/machine",
+  "version": 1,
+  "target": "root@HOST",
+  "disk": "/dev/vda",
+  "record": "/private/record.json",
+  "repo": "/work/consumer",
+  "revision": "FULL_40_CHARACTER_PUSHED_COMMIT",
+  "branch": "main",
+  "output": "HOST_OUTPUT",
+  "machine": "/private/machine",
   "receipt": "/private/install-receipt.json",
-  "remoteCheckout": "/root/consumer", "remoteMachine": "/root/private-machine",
+  "remoteCheckout": "/root/consumer",
+  "remoteMachine": "/root/private-machine",
   "remoteState": "/var/lib/themoss",
   "preEraseCheck": "/private/check-evaluated-config"
 }
 ```
 
-`reportGenerator` and `recoveryDir` are optional consumer-owned executable/tree paths (see below). Omit optional fields rather than using `-`. No application-specific fields or credentials are accepted. The manifest must not enter Git, Nix, the staged flake, or the target. `machine.nix` and `facter.json` must contain **no credentials** because they enter the world-readable store; the parser cannot prove this, so inspect them and the evaluated configuration. Keep SSH keys in the separate recovery tree.
+</details>
 
-Generate the file interactively (the wizard reads an existing discovery record and **requires you to type the disk path**, even though it shows the recorded disk). It suggests the checkout HEAD as a commit default; `plan` verifies that commit is the exact pushed branch tip. The wizard never runs install or copies anything to the host:
+Only values and consumer-owned policy vary; no app-specific keys are accepted. Optional fields are `reportGenerator`, `recoveryDir` and `preEraseCheck` (omit them when unused, rather than entering `-`):
+
+| Field | Consumer-owned contract |
+| --- | --- |
+| `reportGenerator` | Executable receiving `TARGET OUTPUT_PATH`; writes a JSON hardware report. The toolkit saves it as `machine/facter.json` and refuses to replace an existing report. Back it up. |
+| `recoveryDir` | Private, root-relative `nixos-anywhere --extra-files` tree, e.g. `etc/ssh/ssh_host_ed25519_key` (mode 600). Never staged in the flake. No symlinks. |
+| `preEraseCheck` | Executable receiving `STAGED_FLAKE HOST_OUTPUT RECORD` after build. Compare *evaluated* Disko, boot and network choices with the record; nonzero exit stops before confirmation. Configure it when consumer policy requires it—the toolkit cannot infer that policy. |
+
+> 🔒 **No secret contents in the JSON or store-bound files.** `machine.nix` and `facter.json` enter the world-readable Nix store. Review them and the evaluated configuration for credentials; the toolkit cannot detect every secret. Keep SSH keys in the separate recovery tree.
+
+### Later: a reviewed transition
+
+Add `"newMachine": "/private/reviewed-machine"` and `"candidateBranch": "reviewed-branch"` after reviewing the change, then run:
 
 ```bash
-bash toolkit/new-operator-manifest.sh /private/operator.json
-bash toolkit/deploy.sh manifest plan /private/operator.json
-bash toolkit/deploy.sh manifest install /private/operator.json
-# Verify the NEW SSH host key out of band first; retry after interruption:
-bash toolkit/deploy.sh manifest bootstrap /private/operator.json
-# Later, add "newMachine": "/private/reviewed-machine" and
-# "candidateBranch": "reviewed-branch" to the manifest:
 bash toolkit/deploy.sh manifest transition /private/operator.json
 ```
 
-`plan` re-probes and prints target/NIC/disk identity, pushed tip, output and paths; review it against provider console and consumer policy. `install` repeats the plan, builds staged source, runs the consumer pre-erase check if supplied, requires **typed erase confirmation**, then re-probes and re-verifies the tip. For consumers whose policy requires a pre-erase check, configure `preEraseCheck`: it is not inferred by the toolkit. A manifest does not authorize a disk by itself: `disk` and `target` must agree with the mode-600 discovery record. After installation, target, baseline branch/revision, origin and machine hashes are bound to the receipt; do not edit them to repair a mismatch. For transition only, `candidateBranch` and `newMachine` may differ from the installed baseline, after independent review. Target-side `poll`/`deploy` continue using root-owned selector/revision and existing positional commands, not an operator manifest.
+The receipt binds the original target, origin, baseline revision/branch and machine hashes. **Keep the baseline fields unchanged; review the candidate branch and new machine file separately.** If output or remote paths need to change, treat that as a separate operator review, not a silent manifest edit. Do not edit the baseline to paper over a mismatch. Transition does not partition disks. Target-side `poll` and `deploy` continue using root-owned selector/revision and positional commands; the operator manifest is never copied to the host.
 
-Existing pinned consumers can keep using the positional commands below. To migrate, record their exact arguments in the JSON, verify the plan, and bootstrap using the **existing** receipt; never reinstall to migrate. The manifest does not change the on-host format or copy anything to the host.
+## Already using positional commands?
 
-## Fresh install
+**No migration is required.** Existing pinned consumers can keep using `discover`, `preflight`, `install`, `bootstrap` and `transition` with positional arguments. To adopt the manifest, put those same values in the JSON (the authoring script helps), review `manifest plan`, and use the **existing receipt** for bootstrap. Never reinstall to migrate. On-host state is unchanged.
 
-### 1. Discover and review
-
-Verify the **rescue** SSH host key via the provider console, then:
+For reference, the equivalent legacy install and bootstrap invocations are:
 
 ```bash
-bash toolkit/deploy.sh discover root@HOST /dev/vda generated/record.json
-bash toolkit/deploy.sh preflight generated/record.json
+bash toolkit/deploy.sh install RECORD REPO FULL_COMMIT MACHINE_DIR HOST_OUTPUT PUSHED_BRANCH RECEIPT [REPORT_GENERATOR|- [RECOVERY_DIR|- [PRE_ERASE_CHECK|-]]]
+bash toolkit/deploy.sh bootstrap RECEIPT REPO MACHINE_DIR REMOTE_CHECKOUT REMOTE_MACHINE REMOTE_STATE
 ```
 
-Review the private record against the console: **architecture, boot mode, NIC/MAC, whole disk**. Prepare credential-free `generated/machine.nix` and optional `generated/facter.json`.
-
-### 2. Install the pushed commit
-
-Back up private files off-host and prepare console recovery. Commit and push the reviewed configuration:
-
-```bash
-bash toolkit/deploy.sh install generated/record.json /path/to/consumer FULL_COMMIT generated HOST_OUTPUT PUSHED_BRANCH generated/install-receipt.json [REPORT_GENERATOR|- [RECOVERY_DIR|- [PRE_ERASE_CHECK|-]]]
-```
-
-Optional consumer inputs, in positional order:
-
-| Input | Contract |
-| --- | --- |
-| `REPORT_GENERATOR` | Executable receiving `TARGET OUTPUT_PATH`; writes a JSON hardware report. The toolkit saves it privately as `generated/facter.json` and **refuses to replace** an existing report. Back it up. |
-| `RECOVERY_DIR` | Private, root-relative `nixos-anywhere --extra-files` tree (for example `etc/ssh/ssh_host_ed25519_key`, mode 600). It is **not staged in the flake**. The toolkit rejects symlinks but does not create or rotate credentials. |
-| `PRE_ERASE_CHECK` | Executable receiving `STAGED_FLAKE HOST_OUTPUT RECORD` after build; compare *evaluated* Disko, boot and network choices with the record. Nonzero exit stops before confirmation. |
-
-Use `-` to skip an earlier option. Before the installer, the toolkit:
-
-1. Requires a clean checkout at the exact pushed branch head.
-2. Builds, runs the optional check and re-probes the target.
-3. Requires you to type `ERASE /dev/vda`.
-
-**Back up `generated/install-receipt.json` off-host.** It binds target, origin, revision and machine-file hashes. If the installer succeeded but the receipt was not written, **stop**: inspect the installed revision via console. Never reinstall just to mint a receipt.
-
-### 3. Bootstrap
-
-Verify the **new installed** SSH host key through the console before changing `known_hosts`:
-
-```bash
-bash toolkit/deploy.sh bootstrap generated/install-receipt.json /path/to/consumer generated /root/consumer /root/private-machine /var/lib/themoss
-```
-
-Bootstrap uploads original private files, checks out the **exact installed commit** and writes the root-only known-good revision **last**.
-
-- **Interrupted?** Retry the same command; do not reinstall.
-- **Conflict?** Inspect files; bootstrap will not overwrite them.
-- **Test branch?** Polling fails closed before bootstrap. Bootstrap pins `commit:INSTALLED_SHA`; the timer cannot update until an operator selects a branch.
-
-After validation, see [updates and reviewed transitions](updates.md).
+Use `-` to skip earlier optional positional arguments. The same staged build, pre-erase check, confirmation, receipt and retry safeguards apply.
 
 ## Existing host: adopt without reinstalling
 
