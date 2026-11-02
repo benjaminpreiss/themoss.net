@@ -1,54 +1,58 @@
 # Deploy a machine
 
-Use this toolkit to install a **new** NixOS machine from a consumer repository. Start with a disposable VM: the toolkit has not been validated on a real server.
+> ⚠️ **`install` erases a whole disk.** Start with a disposable VM; this toolkit has not been validated on a real server. Never use `install` to repair a machine.
 
-The consumer owns the OS configuration, disk layout and update policy. The toolkit supplies the steps below.
+The operator flow is **discover → install → verify the new SSH key → bootstrap**. The consumer supplies the OS configuration and decides whether automatic updates are enabled.
 
-## 1. Discover and review the target
-
-On your deployment computer, using the toolkit revision pinned by the consumer:
+## 1. Discover and review
 
 ```bash
 bash toolkit/deploy.sh discover root@HOST /dev/vda generated/record.json
 bash toolkit/deploy.sh preflight generated/record.json
 ```
 
-Before connecting, verify the **rescue environment's SSH host key** through the provider console. The toolkit never accepts a new key automatically.
+**Before connecting:** verify the rescue environment's SSH host key through the provider console. SSH will not accept a new key automatically.
 
-Discovery writes a new, private record of the target's architecture, network interface and chosen whole disk. **You choose the disk**; the toolkit cannot tell you which disk is safe to erase. Review the record against the provider console. The consumer must also generate and review `generated/machine.nix` (and, if needed, `generated/facter.json`). These files must contain no credentials: Nix may put them in the world-readable store.
+**What you review:**
 
-The consumer can add its own preflight checks. For example, the relay compares its *evaluated* disk, boot mode and MAC to the discovered target.
+- `generated/record.json` — the target's architecture, network interface and chosen whole disk. **You** decide which disk is safe to erase; check it against the provider console.
+- `generated/machine.nix` — the consumer-generated NixOS machine configuration. Add a reviewed `generated/facter.json` if needed.
+- The consumer's own preflight — for example, the relay compares its *evaluated* disk, boot mode and MAC against the record.
 
-## 2. Install the exact pushed commit
+🔒 **Keep credentials out of `machine.nix` and `facter.json`.** Nix can put these inputs in the world-readable store.
 
-Commit and push the consumer configuration you reviewed. Then run:
+## 2. Install the pushed commit
+
+Commit and push the configuration you reviewed. Have **off-server backups and console recovery** ready, then run:
 
 ```bash
 bash toolkit/deploy.sh install generated/record.json /path/to/consumer FULL_COMMIT generated HOST_OUTPUT PUSHED_BRANCH generated/install-receipt.json
 ```
 
-Install requires a clean checkout and checks that `FULL_COMMIT` is the pushed branch head. It stages and builds that commit, re-probes the target, and asks you to type `ERASE /dev/vda` before calling `nixos-anywhere`.
+Install checks that the checkout is clean and `FULL_COMMIT` is the pushed branch head. It builds that commit, rechecks the target, and requires you to type `ERASE /dev/vda` before invoking the disk installer.
 
-**This is the only command that can erase a disk. Never use it to repair a machine.** Have off-server backups and console recovery ready first.
+**Save `generated/install-receipt.json` off-server.** Written only after a successful install, it records the installed commit, target, branch, origin and hashes of the machine files. Bootstrap uses it; you will not need to re-enter the commit.
 
-After a successful install, the toolkit writes `install-receipt.json`. It records the target, commit, branch, origin and hashes of the reviewed machine files. Back it up off-server. If the installer succeeded but writing the receipt failed, **stop** and verify the installed revision through the console; do not rerun install just to create a receipt.
+> If install succeeded but writing the receipt failed, **stop**. Check the installed revision via the provider console. Do not run the installer again just to create a receipt.
 
-## 3. Bootstrap after first boot
+## 3. Verify the new key and bootstrap
 
-The installed machine has a **different SSH host key**. Verify that new key through the provider console before updating `known_hosts` or running:
+The installed machine has a **new SSH host key**, different from the rescue environment's. Verify it through the provider console before updating `known_hosts`.
 
 ```bash
 bash toolkit/deploy.sh bootstrap generated/install-receipt.json /path/to/consumer generated /root/consumer /root/private-machine /var/lib/themoss
 ```
 
-Bootstrap checks the private files against the receipt. It uploads only `machine.nix` and optional `facter.json`, checks out the exact installed commit on the target, and records that commit as the initial known-good revision. It refuses conflicting existing files. If an upload or clone stops halfway, retry the **same command**; do not reinstall.
+Bootstrap checks the machine files against the receipt, uploads them, checks out the **exact installed commit** on the target and records it as the initial known-good revision. Target files are root-only.
 
-The target paths are root-only. Bootstrap does **not** change timer policy. For a test-branch install, the consumer must configure the updater timer **off before installation** and verify it is absent on first boot.
+- **Interrupted upload or clone?** Retry the same bootstrap command; do not reinstall.
+- **Conflicting target files?** Stop and inspect them. Bootstrap will not overwrite them.
+- **Test-branch install?** Configure the updater timer **off before install** and confirm it is absent at first boot. Bootstrap does not control timers.
 
-Once the machine is working, see [updates and candidate transitions](updates.md).
+After validating the host, see [updating and candidate transitions](updates.md).
 
-## What stays in the consumer?
+## What belongs to the consumer?
 
-Keep the machine generator, supported architecture and network choices, application and Disko modules, SSH public-key selection, branch/cadence policy and live private data in the consumer. Small wrappers that pass the consumer's paths and pinned toolkit revision are expected. See the [relay example](../examples/thepeer.nix) and [manual-update example](../examples/agentic.nix).
+Keep machine generation, supported hardware and network choices, SSH public-key selection, application and Disko modules, update branch/cadence and live private data in the consumer. Small wrappers can supply its paths and pinned toolkit revision. See the [relay](../examples/thepeer.nix) and [manual-update](../examples/agentic.nix) examples.
 
-Consumers pin an immutable toolkit commit in their own flake and test each pin bump before deployment. This repository does not build either consumer's complete OS. Run `bash tests/test.sh` for local, mocked lifecycle checks; these tests do not contact a server or erase a disk.
+**Before adopting a toolkit update:** pin a full commit in the consumer's flake and test that consumer's OS. Locally, `bash tests/test.sh` exercises the toolkit with mocks; it does not contact a server or prove a real install works.
