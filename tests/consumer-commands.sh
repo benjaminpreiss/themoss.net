@@ -6,15 +6,21 @@ root=$(cd "$(dirname "$0")/.." && pwd -P)
 tmp=$(mktemp -d "$root/.consumer-test-tmp.XXXXXXXX")
 trap 'rm -rf "$tmp"' EXIT
 cp "$root/tests/fixtures/consumer/flake.nix" "$tmp/flake.nix"
+cp "$root/toolkit/update.nix" "$root/toolkit/deploy.sh" "$tmp/"
 # An independent repo keeps Nix from treating this disposable flake as an
 # untracked path in the checkout under test.
 git -C "$tmp" init -q
-git -C "$tmp" add flake.nix
+git -C "$tmp" add flake.nix update.nix deploy.sh
 (
   cd "$tmp"
   nix flake update
   test -s flake.lock
   output=$(nix build --no-link --print-out-paths .#nixosConfigurations.synthetic.config.system.build.toplevel)
   [[ $(<"$output") == synthetic-machine ]]
+  nix eval --raw .#nixosConfigurations.agentic.config.system.build.toplevel.drvPath >/dev/null
+  [[ $(nix eval --raw .#nixosConfigurations.agentic.config.systemd.services.themoss-update.serviceConfig.ExecStart) == *' poll /root/agentic '* ]]
 )
-echo 'Synthetic consumer update/build passed'
+# CI exercises the pinned Linux operator environment without a target or disk.
+nix develop --no-write-lock-file "$root#operator" --command bash -n "$root/toolkit/deploy.sh" "$root/toolkit/bootstrap-remote.sh"
+nix develop --no-write-lock-file "$root#operator" --command bash "$root/tests/operator-smoke.sh"
+echo 'Synthetic consumer update/build and operator environment passed'

@@ -12,5 +12,24 @@
         pkgs.runCommand "synthetic-machine" { } ''
           echo synthetic-machine > "$out"
         '';
+      nixosConfigurations.agentic = nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [
+          ./update.nix
+          ({ ... }: {
+            system.stateVersion = "25.05";
+            boot.loader.grub.enable = true;
+            boot.loader.grub.device = "/dev/vda";
+            fileSystems."/" = { device = "/dev/vda1"; fsType = "ext4"; };
+            services.themossUpdate = {
+              enable = true;
+              repository = "/root/agentic";
+              machine = "/root/private-machine";
+              host = "agentic";
+              state = "/var/lib/themoss";
+            };
+          })
+        ];
+      };
     };
 }

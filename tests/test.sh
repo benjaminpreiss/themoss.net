@@ -24,6 +24,7 @@ shift 2
 shift # target
 if [[ $* == *'cat /sys/class/net/'* ]]; then echo aa:bb:cc:dd:ee:ff
 elif [[ $* == tar\ -xf* && ${MOCK_UPLOAD_FAIL:-0} == 1 ]]; then exit 79
+elif [[ $* == 'readlink -f /run/current-system' ]]; then echo "${MOCK_RUNNING_SYSTEM:-/nix/store/synthetic-baseline}"
 elif [[ $* == bash\ -s\ --* || $* == tar\ -xf* ]]; then bash -c "$*"
 else cat "$MOCK_PROBE"; fi
 EOF
@@ -34,7 +35,8 @@ if [[ ${MOCK_TIP_MOVE:-0} == 1 ]]; then
   git -C "$MOCK_SOURCE" commit --allow-empty -qm 'tip moved during build'
   git -C "$MOCK_SOURCE" push -q origin HEAD:main
 fi
-[[ $MOCK_FAIL != build ]]
+[[ $MOCK_FAIL != build ]] || exit 1
+if [[ $* == *--print-out-paths* ]]; then echo /nix/store/synthetic-baseline; fi
 EOF
 cat >"$tmp/bin/nixos-rebuild" <<'EOF'
 #!/usr/bin/env bash
@@ -75,6 +77,32 @@ printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$firs
 [[ $(jq -r .revision "$receipt") == "$first" && $(stat -c %a "$receipt") == 600 ]]
 if printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/machine" test main "$receipt" >/dev/null 2>&1; then echo 'replaced receipt' >&2; exit 1; fi
 [[ $(grep -c ERASE "$tmp/log") == 1 ]]
+# Consumer-owned report generator, pre-erase evaluated check and separate
+# recovery tree. No recovery material may enter the staged Nix flake.
+mkdir "$tmp/generated" "$tmp/recovery"
+printf 'private key\n' >"$tmp/recovery/secret"
+cat >"$tmp/generator" <<'EOF'
+#!/usr/bin/env bash
+[[ $1 == root@example ]] || exit 1
+printf '{"hardware":"synthetic"}\n' >"$2"
+EOF
+cat >"$tmp/check" <<'EOF'
+#!/usr/bin/env bash
+[[ -f $1/generated/facter.json && $2 == test && -f $3 ]] || exit 1
+[[ ! -e $1/secret ]] || exit 1
+printf 'evaluated %s\n' "$1" >>"$MOCK_LOG"
+EOF
+chmod +x "$tmp/generator" "$tmp/check"
+printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/empty" test main "$tmp/report-receipt" "$tmp/generator" "$tmp/recovery" "$tmp/check" >/dev/null 2>&1 && exit 1 # missing machine facts
+cp "$tmp/machine/machine.nix" "$tmp/generated/machine.nix"
+printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/generated" test main "$tmp/report-receipt" "$tmp/generator" "$tmp/recovery" "$tmp/check"
+[[ $(jq -r .facterSha256 "$tmp/report-receipt") == "$(sha256sum "$tmp/generated/facter.json" | cut -d ' ' -f1)" ]]
+grep -q -- '--extra-files' "$tmp/log"
+if printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/generated" test main "$tmp/report-receipt2" "$tmp/generator" >/dev/null 2>&1; then echo 'overwrote report' >&2; exit 1; fi
+[[ $(grep -c ERASE "$tmp/log") == 2 ]]
+printf '#!/usr/bin/env bash\nexit 1\n' >"$tmp/reject-check"; chmod +x "$tmp/reject-check"
+printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/generated" test main "$tmp/rejected-receipt" - - "$tmp/reject-check" >/dev/null 2>&1 && { echo 'pre-erase validation bypassed' >&2; exit 1; }
+[[ $(grep -c ERASE "$tmp/log") == 2 && ! -e $tmp/rejected-receipt ]]
 cat >"$tmp/bin/systemctl" <<'EOF'
 #!/usr/bin/env bash
 echo "unexpected timer call $*" >>"$MOCK_LOG"
@@ -93,6 +121,12 @@ bootstrap
 [[ $(git -C "$tmp/remote/repo" rev-parse HEAD) == "$first" ]]
 ! grep -q 'unexpected timer call' "$tmp/log"
 bootstrap # idempotent retry
+report_bootstrap() { bash "$cli" bootstrap "$tmp/report-receipt" "$tmp/repo" "$tmp/generated" "$tmp/report-remote/repo" "$tmp/report-remote/machine" "$tmp/report-remote/state"; }
+report_bootstrap
+[[ $(<"$tmp/report-remote/machine/facter.json") == '{"hardware":"synthetic"}' ]]
+printf '{"hardware":"changed"}\n' >"$tmp/generated/facter.json"
+report_bootstrap >/dev/null 2>&1 && { echo 'accepted changed hardware report' >&2; exit 1; }
+printf '{"hardware":"synthetic"}\n' >"$tmp/generated/facter.json"
 # Interrupted upload and incomplete state recover without changing the commit.
 rm "$tmp/remote/state/revision" "$tmp/remote/machine/machine.nix"
 mkdir -p "$tmp/remote/state/incoming"
@@ -131,7 +165,7 @@ transition
 [[ $(<"$tmp/remote/machine/machine.nix") == production ]]
 [[ $(<"$tmp/remote/state/selector") == branch:main ]]
 ! grep -q 'unexpected timer call' "$tmp/log"
-[[ $(grep -c ERASE "$tmp/log") == 1 ]]
+[[ $(grep -c ERASE "$tmp/log") == 2 ]]
 git -C "$tmp/repo" reset -q --hard "$next"
 git -C "$tmp/repo" push -q --force origin HEAD:main
 : >"$tmp/log"
@@ -150,6 +184,8 @@ grep -q switch "$tmp/log"
 ! grep -q ERASE "$tmp/log"
 second=$(<"$tmp/state/revision")
 [[ $second != "$first" ]]
+[[ $(<"$tmp/generated/facter.json") == '{"hardware":"synthetic"}' ]]
+[[ $(<"$tmp/generated/machine.nix") == candidate ]]
 rm "$tmp/machine/machine.nix"
 printf 'change2\n' >"$tmp/repo/version"; git -C "$tmp/repo" add version; git -C "$tmp/repo" commit -qm third; git -C "$tmp/repo" push -q origin HEAD:main
 bash "$cli" poll "$tmp/repo" "$tmp/machine" test "$tmp/state" >/dev/null 2>&1 && { echo 'missing config passed' >&2; exit 1; }
@@ -180,12 +216,45 @@ MOCK_SWITCH_FAIL=1 bash "$cli" poll "$tmp/repo" "$tmp/machine" test "$tmp/state"
 if bash "$cli" poll "$tmp/repo" "$tmp/machine" test "$tmp/state" >/dev/null 2>&1; then echo 'uncertain switch retried' >&2; exit 1; fi
 rm "$tmp/state/needs-inspection" # fixture simulates operator recovery
 # Force a divergent origin (never accepted as a fast-forward).
-printf 'candidate\n' >"$tmp/machine/machine.nix"
+printf 'candidate\n' >"$tmp/machine/machine.nix"; chmod 600 "$tmp/machine/machine.nix"
 git -C "$tmp/repo" reset -q --hard "$first"
 printf 'other branch\n' >"$tmp/repo/version"; git -C "$tmp/repo" add version; git -C "$tmp/repo" commit -qm diverged
 git -C "$tmp/repo" push -q --force origin HEAD:main
 bash "$cli" poll "$tmp/repo" "$tmp/machine" test "$tmp/state" >/dev/null 2>&1 && { echo 'divergence passed' >&2; exit 1; }
 [[ $(<"$tmp/state/revision") == "$second" ]]
+# Legacy adoption: verified closure and private hashes, no install receipt.
+# An incomplete upload must not authorize polling (no revision file).
+jq -n --arg target root@example --arg rev "$first" --arg branch main --arg url "$tmp/origin.git" --arg sha "$(sha256sum "$tmp/machine/machine.nix" | cut -d ' ' -f1)" \
+  '{target:$target,revision:$rev,branch:$branch,origin:$url,machineSha256:$sha,facterSha256:"",verifiedBy:"operator via console",runningSystem:"/nix/store/synthetic-baseline"}' >"$tmp/evidence"
+chmod 600 "$tmp/evidence"
+adopt() { bash "$cli" adopt "$tmp/evidence" "$tmp/repo" "$tmp/machine" test "$tmp/legacy/repo" "$tmp/legacy/machine" "$tmp/legacy/state"; }
+MOCK_RUNNING_SYSTEM=/nix/store/changed adopt >/dev/null 2>&1 && { echo 'adopted wrong running system' >&2; exit 1; }
+[[ ! -e $tmp/legacy/state/revision ]]
+MOCK_UPLOAD_FAIL=1 adopt >/dev/null 2>&1 && { echo 'adopted incomplete upload' >&2; exit 1; }
+[[ ! -e $tmp/legacy/state/revision ]]
+bash "$cli" poll "$tmp/repo" "$tmp/machine" test "$tmp/legacy/state" >/dev/null 2>&1 && { echo 'poll accepted incomplete adoption' >&2; exit 1; }
+# The original commit is still reachable in the test origin's branch only if
+# restored; do not claim a rewritten branch is a verified legacy baseline.
+git -C "$tmp/repo" push -q --force origin "$first":main
+adopt
+[[ $(<"$tmp/legacy/state/revision") == "$first" ]]
+[[ $(<"$tmp/legacy/state/selector") == "commit:$first" ]]
+: >"$tmp/log"
+bash "$cli" poll "$tmp/legacy/repo" "$tmp/legacy/machine" test "$tmp/legacy/state"
+[[ ! -s $tmp/log ]]
+adopt # retry
+printf 'unrelated\n' >"$tmp/legacy/machine/facter.json"
+adopt >/dev/null 2>&1 && { echo 'adopt kept unexpected report' >&2; exit 1; }
+rm "$tmp/legacy/machine/facter.json"
+printf 'wrong\n' >"$tmp/legacy/machine/machine.nix"
+adopt >/dev/null 2>&1 && { echo 'adopt overwrote original facts' >&2; exit 1; }
+printf 'candidate\n' >"$tmp/legacy/machine/machine.nix"
+printf 'wrong\n' >"$tmp/machine/machine.nix"
+adopt >/dev/null 2>&1 && { echo 'adopt accepted changed evidence' >&2; exit 1; }
+printf 'candidate\n' >"$tmp/machine/machine.nix"
+printf '%040d\n' 0 >"$tmp/legacy/state/revision"
+adopt >/dev/null 2>&1 && { echo 'adopt replaced conflicting revision' >&2; exit 1; }
+! grep -q ERASE "$tmp/log"
 # Both consumer policies parse, and the candidate relay's timer starts disabled.
 if command -v nix-instantiate >/dev/null; then
   for file in "$root"/examples/*.nix "$root"/toolkit/update.nix; do nix-instantiate --parse "$file" >/dev/null; done

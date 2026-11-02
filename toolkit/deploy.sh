@@ -9,7 +9,7 @@ set -euo pipefail
 export LC_ALL=C
 umask 077
 fail() { echo "themoss: $*" >&2; exit 1; }
-usage() { fail 'usage: deploy.sh discover TARGET DISK RECORD | preflight RECORD | install RECORD REPO REV MACHINE_DIR HOST BRANCH RECEIPT | bootstrap RECEIPT REPO MACHINE_DIR REMOTE_CHECKOUT REMOTE_MACHINE REMOTE_STATE | poll REPO MACHINE_DIR HOST STATE_DIR | deploy REPO REF MACHINE_DIR HOST STATE_DIR | transition RECEIPT TARGET REMOTE_CHECKOUT BRANCH NEW_MACHINE_DIR REMOTE_MACHINE HOST REMOTE_STATE | migrate STATE_DIR REF'; }
+usage() { fail 'usage: deploy.sh discover TARGET DISK RECORD | preflight RECORD | install RECORD REPO REV MACHINE_DIR HOST BRANCH RECEIPT [REPORT_GENERATOR|- [RECOVERY_DIR|- [PRE_ERASE_CHECK|-]]] | bootstrap RECEIPT REPO MACHINE_DIR REMOTE_CHECKOUT REMOTE_MACHINE REMOTE_STATE | adopt EVIDENCE REPO MACHINE_DIR HOST REMOTE_CHECKOUT REMOTE_MACHINE REMOTE_STATE | poll REPO MACHINE_DIR HOST STATE_DIR | deploy REPO REF MACHINE_DIR HOST STATE_DIR | transition RECEIPT TARGET REMOTE_CHECKOUT BRANCH NEW_MACHINE_DIR REMOTE_MACHINE HOST REMOTE_STATE | migrate STATE_DIR REF'; }
 [[ $# -ge 1 ]] || usage
 op=$1; shift
 
@@ -146,8 +146,17 @@ case $op in
     check "$1"
     ;;
   install)
-    [[ $# == 7 ]] || usage
+    [[ $# -ge 7 && $# -le 10 ]] || usage
     record=$1 repo=$2 rev=$3 machine=$4 host=$5 branch=$6 receipt=$7
+    generator=${8:--} recovery=${9:--} pre_erase=${10:--}
+    [[ $host =~ ^[a-zA-Z0-9_-]+$ ]] || fail 'invalid host output'
+    for hook in "$generator" "$pre_erase"; do
+      [[ $hook == - || ( -f $hook && ! -L $hook && -x $hook ) ]] || fail 'hook must be an executable regular file'
+    done
+    if [[ $recovery != - ]]; then
+      [[ -d $recovery && ! -L $recovery ]] || fail 'missing recovery directory'
+      [[ -z $(find "$recovery" -type l -print -quit) ]] || fail 'linked recovery file'
+    fi
     [[ ! -e $receipt && ! -L $receipt ]] || fail 'refusing to replace install receipt'
     [[ -d $(dirname "$receipt") && ! -L $(dirname "$receipt") ]] || fail 'invalid receipt directory'
     # A clean checkout prevents an operator from mistaking uncommitted edits
@@ -157,16 +166,32 @@ case $op in
     [[ $branch =~ ^[a-zA-Z0-9_/-]+$ && $branch != *..* ]] || fail 'invalid branch'
     [[ $(git -C "$repo" ls-remote --exit-code origin "refs/heads/$branch" | cut -f1) == "$rev" ]] || fail 'install commit must be pushed as exact branch head'
     check "$record"
+    if [[ $generator != - ]]; then
+      [[ ! -e $machine/facter.json && ! -L $machine/facter.json ]] || fail 'refusing to replace hardware report'
+      # The generator is consumer-owned. It receives the verified SSH target
+      # and a private output path; it must not write into the Nix store.
+      report=$(mktemp "$machine/.facter.XXXXXXXX")
+      rm -- "$report"
+      "$generator" "$(jq -r .target "$record")" "$report"
+      [[ -f $report && ! -L $report ]] || fail 'generator did not produce a regular report'
+      jq -e . "$report" >/dev/null || fail 'invalid hardware report'
+      [[ ! -e $machine/facter.json && ! -L $machine/facter.json ]] || fail 'hardware report appeared during generation'
+      chmod 600 "$report"
+      mv -n -- "$report" "$machine/facter.json"
+    fi
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
     stage "$repo" "$rev" "$machine" "$tmp"
     build "$tmp" "$host"
+    if [[ $pre_erase != - ]]; then "$pre_erase" "$tmp" "$host" "$record"; fi
     disk=$(jq -r .disk.path "$record")
     read -r -p "Type ERASE $disk to install on $(jq -r .target "$record"): " answer || fail 'confirmation denied'
     [[ $answer == "ERASE $disk" ]] || fail 'confirmation denied'
     check "$record" # target may have changed while building
     verify_tip "$repo" "$branch" "$rev" # pushed tip may have moved during build
     # Destructive boundary: no other command below can reach this installer.
-    nixos-anywhere --flake "$tmp#$host" --target-host "$(jq -r .target "$record")"
+    anywhere=(--flake "$tmp#$host" --target-host "$(jq -r .target "$record")")
+    if [[ $recovery != - ]]; then anywhere+=(--extra-files "$recovery"); fi
+    nixos-anywhere "${anywhere[@]}"
     # Only a successful installer can produce the off-host install receipt.
     # Keep it separate from the Nix store; private files must still be secret-free.
     url=$(git -C "$repo" remote get-url origin)
@@ -223,6 +248,37 @@ case $op in
     fi
     tar -C "$machine" -cf - "${files[@]}" | ssh -o StrictHostKeyChecking=yes "$target" "tar -xf - -C $state/incoming --no-same-owner"
     ssh -o StrictHostKeyChecking=yes "$target" "bash -s -- finish$remote_args" <"$helper"
+    ;;
+  adopt)
+    # Operator-supplied evidence is NOT an install receipt. Verify the running
+    # system against a build of the pinned revision before touching target state.
+    [[ $# == 7 ]] || usage
+    evidence=$1 repo=$2 machine=$3 host=$4 checkout=$5 remote_machine=$6 state=$7
+    [[ -f $evidence && ! -L $evidence && $(stat -c %a "$evidence") == 600 ]] || fail 'missing private evidence'
+    [[ $host =~ ^[a-zA-Z0-9_-]+$ ]] || fail 'invalid host'
+    jq -e '.verifiedBy | type == "string" and length > 0' "$evidence" >/dev/null || fail 'operator verification required'
+    target=$(jq -er .target "$evidence")
+    rev=$(jq -er .revision "$evidence")
+    [[ $target =~ ^root@[a-zA-Z0-9_.:-]+$ && $rev =~ ^[0-9a-f]{40}$ ]] || fail 'invalid target or revision'
+    [[ $(git -C "$repo" remote get-url origin) == "$(jq -er .origin "$evidence")" ]] || fail 'origin differs from evidence'
+    [[ $(git -C "$repo" cat-file -t "$rev") == commit ]] || fail 'missing verified commit'
+    # Reuse bootstrap's hash and path validation, but only after comparing the
+    # actual running closure with the proposed baseline. No disk call here.
+    [[ -f $machine/machine.nix && ! -L $machine/machine.nix && $(stat -c %a "$machine/machine.nix") == 600 ]] || fail 'missing private machine facts'
+    [[ $(sha256sum "$machine/machine.nix" | cut -d ' ' -f1) == "$(jq -er .machineSha256 "$evidence")" ]] || fail 'changed machine facts'
+    facter_sha=$(jq -er .facterSha256 "$evidence")
+    if [[ -n $facter_sha ]]; then
+      [[ -f $machine/facter.json && ! -L $machine/facter.json && $(sha256sum "$machine/facter.json" | cut -d ' ' -f1) == "$facter_sha" ]] || fail 'changed hardware report'
+    else
+      [[ ! -e $machine/facter.json && ! -L $machine/facter.json ]] || fail 'unexpected hardware report'
+    fi
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    stage "$repo" "$rev" "$machine" "$tmp"
+    expected=$(nix build --no-link --no-write-lock-file --print-out-paths "$tmp#nixosConfigurations.$host.config.system.build.toplevel")
+    [[ $expected == "$(jq -er .runningSystem "$evidence")" && $expected == /nix/store/* ]] || fail 'evidence does not match evaluated system'
+    actual=$(ssh -o StrictHostKeyChecking=yes "$target" 'readlink -f /run/current-system')
+    [[ $actual == "$expected" ]] || fail 'running system differs from verified baseline'
+    bash "${BASH_SOURCE[0]}" bootstrap "$evidence" "$repo" "$machine" "$checkout" "$remote_machine" "$state"
     ;;
   transition)
     [[ $# == 8 ]] || usage
