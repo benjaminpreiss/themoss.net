@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Shared deployment mechanics. Consumer owns the flake, private machine module,
 # disk layout, branch policy and update cadence. Requires Bash, jq, git, Nix.
+#
+# Operator flow: discover -> preflight -> install -> verify NEW SSH host key ->
+# bootstrap -> validate host -> optionally transition to a reviewed branch.
+# Only install calls nixos-anywhere. Update and transition never partition disks.
 set -euo pipefail
 export LC_ALL=C
 umask 077
@@ -13,6 +17,8 @@ probe() {
   local target=$1
   # Verify the SSH fingerprint out of band before calling us. Never accept-new.
   local raw arch boot routes disks nic mac
+  # Collect facts in one SSH session; read the selected NIC's MAC separately
+  # after parsing the single default route. Ambiguity is a stop, not a guess.
   raw=$(ssh -o StrictHostKeyChecking=yes "$target" bash -s <<'REMOTE'
 set -euo pipefail
 uname -m
@@ -39,6 +45,8 @@ private_record() {
 check() {
   local record=$1 actual disk
   private_record "$record"
+  # Re-probe rather than trusting the discovery record: devices can change
+  # between preparation, build and the final erase confirmation.
   actual=$(probe "$(jq -r .target "$record")")
   jq -e --argjson actual "$actual" '
     . as $r | ($actual | .arch == $r.arch and .boot == $r.boot and .nic == $r.nic and .mac == $r.mac)
@@ -89,6 +97,8 @@ case $op in
     record=$1 repo=$2 rev=$3 machine=$4 host=$5 branch=$6 receipt=$7
     [[ ! -e $receipt && ! -L $receipt ]] || fail 'refusing to replace install receipt'
     [[ -d $(dirname "$receipt") && ! -L $(dirname "$receipt") ]] || fail 'invalid receipt directory'
+    # A clean checkout prevents an operator from mistaking uncommitted edits
+    # for the committed OS that will actually be installed.
     [[ -z $(git -C "$repo" status --porcelain) ]] || fail 'commit/review local changes before install'
     [[ $rev =~ ^[0-9a-f]{40}$ && $(git -C "$repo" cat-file -t "$rev") == commit ]] || fail 'install requires a pinned full commit'
     [[ $branch =~ ^[a-zA-Z0-9_/-]+$ && $branch != *..* ]] || fail 'invalid branch'
@@ -101,6 +111,7 @@ case $op in
     read -r -p "Type ERASE $disk to install on $(jq -r .target "$record"): " answer || fail 'confirmation denied'
     [[ $answer == "ERASE $disk" ]] || fail 'confirmation denied'
     check "$record" # target may have changed while building
+    # Destructive boundary: no other command below can reach this installer.
     nixos-anywhere --flake "$tmp#$host" --target-host "$(jq -r .target "$record")"
     # Only a successful installer can produce the off-host install receipt.
     # Keep it separate from the Nix store; private files must still be secret-free.
@@ -119,6 +130,8 @@ case $op in
     [[ $# == 6 ]] || usage
     receipt=$1 repo=$2 machine=$3 checkout=$4 remote_machine=$5 state=$6
     [[ -f $receipt && ! -L $receipt && $(stat -c %a "$receipt") == 600 ]] || fail 'missing or unsafe install receipt'
+    # The receipt is the off-host handoff from install. It binds the target,
+    # origin and private inputs to the commit actually passed to the installer.
     target=$(jq -er .target "$receipt")
     rev=$(jq -er .revision "$receipt")
     branch=$(jq -er .branch "$receipt")
@@ -146,6 +159,8 @@ case $op in
       printf -v quoted '%q' "$arg"
       remote_args+=" $quoted"
     done
+    # Prepare and finish share a root-only incoming directory. Upload happens
+    # between them, so a dropped connection leaves a retryable partial upload.
     ssh -o StrictHostKeyChecking=yes "$target" "bash -s -- prepare$remote_args" <"$helper"
     files=(machine.nix)
     if [[ -e $machine/facter.json || -L $machine/facter.json ]]; then
@@ -168,12 +183,15 @@ case $op in
     rev=$(jq -er .revision "$receipt")
     sha=$(jq -er .machineSha256 "$receipt")
     [[ $rev =~ ^[0-9a-f]{40}$ && $sha =~ ^[0-9a-f]{64}$ ]] || fail 'invalid receipt'
+    # Send the new consumer-owned machine file as a proposal, not live state.
     # The target has no toolkit checkout: transmit the same update implementation.
     ssh -o StrictHostKeyChecking=yes "$target" "bash -s -- prepare-transition $repo $machine $state $rev $sha" <"${BASH_SOURCE[0]}"
     tar -C "$new_machine" -cf - machine.nix | ssh -o StrictHostKeyChecking=yes "$target" "tar -xf - -C $state/transition-incoming --no-same-owner"
     ssh -o StrictHostKeyChecking=yes "$target" "bash -s -- update $repo $branch $machine $host $state $state/transition-incoming/machine.nix $rev $sha" <"${BASH_SOURCE[0]}"
     ;;
   prepare-transition)
+    # Target-side gate before uploading a reviewed private file. If state or
+    # current facts have drifted since install, require operator inspection.
     [[ $# == 5 ]] || usage
     repo=$1 machine=$2 state=$3 rev=$4 sha=$5
     [[ -d $repo/.git && ! -L $repo && -d $machine && ! -L $machine && -d $state && ! -L $state ]] || fail 'missing target checkout/private state'
@@ -197,11 +215,14 @@ case $op in
     current=$(<"$state/revision")
     [[ $current =~ ^[0-9a-f]{40}$ ]] || fail 'invalid known-good revision'
     if [[ -n $reviewed ]]; then
+      # Transition may change the private input only from the receipt's exact
+      # baseline; routine updates always use the already-installed input.
       [[ $expected_rev == "$current" && $expected_sha =~ ^[0-9a-f]{64}$ && $reviewed == "$state/transition-incoming/machine.nix" ]] || fail 'invalid transition baseline'
       [[ -f $reviewed && ! -L $reviewed && -f $machine/machine.nix && ! -L $machine/machine.nix ]] || fail 'missing reviewed/current machine facts'
       [[ $(sha256sum "$machine/machine.nix" | cut -d ' ' -f1) == "$expected_sha" ]] || fail 'machine facts changed since install'
       [[ ! -L $state/transition-incoming && $(stat -c %a "$state/transition-incoming") == 700 ]] || fail 'unsafe reviewed upload'
     fi
+    # Fetch/build failures and rewritten history cannot advance known-good.
     git -C "$repo" fetch --no-tags origin "refs/heads/$branch"
     next=$(git -C "$repo" rev-parse FETCH_HEAD)
     git -C "$repo" merge-base --is-ancestor "$current" "$next" || fail 'diverged history'
@@ -209,6 +230,8 @@ case $op in
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
     stage_machine=$machine
     if [[ -n $reviewed ]]; then
+      # Build with the proposed file but keep the live file untouched until
+      # the new system has successfully switched.
       mkdir -m 700 "$tmp/private"
       cp -- "$reviewed" "$tmp/private/machine.nix"
       if [[ -f $machine/facter.json && ! -L $machine/facter.json ]]; then cp -- "$machine/facter.json" "$tmp/private/facter.json"; fi
@@ -218,6 +241,8 @@ case $op in
     stage "$repo" "$next" "$stage_machine" "$tmp/source"
     build "$tmp/source" "$host"
     nixos-rebuild switch --flake "$tmp/source#$host" --no-write-lock-file
+    # Ordering matters: switch first, then persist the reviewed input, then
+    # advance revision. A post-switch write failure needs manual inspection.
     if [[ -n $reviewed ]]; then
       cp -- "$reviewed" "$machine/machine.nix.tmp"
       chmod 600 "$machine/machine.nix.tmp"

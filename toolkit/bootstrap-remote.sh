@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Run only over SSH with StrictHostKeyChecking=yes, as root. Never install disks.
+# Called twice: prepare clears an interrupted upload; finish verifies and
+# commits it. The receipt's revision must be the initial known-good revision.
 set -euo pipefail
 umask 077
 fail() { echo "themoss bootstrap: $*" >&2; exit 1; }
@@ -17,6 +19,8 @@ mkdir -p -m 700 "$state"
 exec 9>"$state/bootstrap.lock"
 flock -n 9 || fail 'bootstrap already running'
 [[ ! -L $state/revision && ! -L $state/incoming ]] || fail 'linked state'
+# Re-running bootstrap may finish an interrupted attempt, but never replace a
+# different known-good revision or an unrelated source checkout.
 if [[ -e $state/revision ]]; then
   [[ -f $state/revision && $(<"$state/revision") == "$rev" ]] || fail 'different known-good revision'
 fi
@@ -24,6 +28,7 @@ if [[ -e $repo ]]; then
   [[ -d $repo && -d $repo/.git && ! -L $repo/.git ]] || fail 'unrelated checkout'
   [[ $(git -C "$repo" remote get-url origin) == "$url" && $(git -C "$repo" rev-parse HEAD) == "$rev" ]] || fail 'checkout does not match installed commit/origin'
 fi
+# The incoming directory is disposable. The live machine files are not.
 if [[ $phase == prepare ]]; then
   mkdir -p -m 700 "$state/incoming"
   # A previous interrupted upload is disposable; already committed files are not.
@@ -41,7 +46,8 @@ for name in machine.nix facter.json; do
   fi
 done
 # Fetch before changing any durable state. A branch may advance after install;
-# the installed commit must still be in its ancestry.
+# the installed commit must still be in its ancestry. Checkout the receipt's
+# commit, not the latest branch head (which may enable updates too early).
 if [[ ! -e $repo ]]; then
   rm -rf -- "$state/checkout.tmp"
   git clone --no-checkout --single-branch --branch "$branch" -- "$url" "$state/checkout.tmp"
@@ -62,8 +68,8 @@ for name in machine.nix facter.json; do
     mv -n -- "$machine/$name.tmp" "$machine/$name"
   fi
 done
-# Timer/branch authorization belongs to the consumer's NixOS configuration.
-# Commit marker last. Interrupted attempts can be retried with identical inputs.
+# Timer authorization belongs to the consumer's NixOS configuration. Commit
+# the revision last so a failed upload or clone cannot appear bootstrapped. Interrupted attempts can be retried with identical inputs.
 printf '%s\n' "$rev" >"$state/revision.tmp"
 chmod 600 "$state/revision.tmp"
 mv -- "$state/revision.tmp" "$state/revision"
