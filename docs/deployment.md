@@ -2,7 +2,7 @@
 
 > ⚠️ **`install` erases a whole disk.** Start with a disposable VM; this toolkit has not been validated on a real server. Never use `install` to repair a machine.
 
-The operator flow is **discover → install → verify the new SSH key → bootstrap**. The consumer supplies the OS configuration and decides whether automatic updates are enabled.
+The operator flow is **discover → install → verify the new SSH key → bootstrap**. The consumer supplies the OS configuration and timer cadence; a root-owned selector decides whether updates can run.
 
 ## 1. Discover and review
 
@@ -47,12 +47,12 @@ Bootstrap checks the machine files against the receipt, uploads them, checks out
 
 - **Interrupted upload or clone?** Retry the same bootstrap command; do not reinstall.
 - **Conflicting target files?** Stop and inspect them. Bootstrap will not overwrite them.
-- **Test-branch install?** Configure the updater timer **off before install** and confirm it is absent at first boot. Bootstrap does not control timers.
+- **Test-branch install?** The timer may be active, but it fails closed before bootstrap. Bootstrap pins `commit:INSTALLED_SHA`, so later polls do nothing until an operator selects a branch.
 
 After validating the host, see [updating and candidate transitions](updates.md).
 
 ## What belongs to the consumer?
 
-Keep machine generation, supported hardware and network choices, SSH public-key selection, application and Disko modules, update branch/cadence and live private data in the consumer. Small wrappers can supply its paths and pinned toolkit revision. See the [relay](../examples/thepeer.nix) and [manual-update](../examples/agentic.nix) examples.
+Keep machine generation, supported hardware and network choices, SSH public-key selection, application and Disko modules, trusted branches/cadence and live private data in the consumer. Small wrappers can supply its paths and pinned toolkit revision. See the [relay](../examples/thepeer.nix) and [manual-update](../examples/agentic.nix) examples.
 
 **Before adopting a toolkit update:** pin a full commit in the consumer's flake and test that consumer's OS. Locally, `bash tests/test.sh` exercises the toolkit with mocks; it does not contact a server or prove a real install works.
