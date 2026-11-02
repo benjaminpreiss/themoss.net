@@ -1,45 +1,77 @@
-# Track a commit or a branch
+# Choose what your machine follows
 
-The timer stays active whenever `services.themossUpdate.enable = true`. Its root-owned selector, **not a branch configured in the flake**, determines whether it can update the host. The consumer owns the cadence, branch protection, credentials, private machine generation and CI policy. Pin the toolkit separately in the consumer's `flake.lock`.
+A machine can stay on one commit or follow one branch. The update timer is **always active**; the choice is stored on the host, outside the source it fetches.
 
-`STATE_DIR` (mode 0700) contains `revision` (last successfully switched full SHA), `selector` (mode 0600, `commit:FULL_SHA` or `branch:NAME`), `lock` and, after an uncertain switch, `needs-inspection`. These files must live outside the fetched checkout and Nix store. Bootstrap creates a `commit:` pin from the install receipt. Nothing polls autonomously until an operator selects a branch. The timer may fire before bootstrap: it fails closed on missing state.
+| Selection | When the timer fires |
+| --- | --- |
+| `commit:FULL_SHA` | 🔒 Nothing: no fetch, build or switch. |
+| `branch:NAME` | 🔎 Check *only that branch*. If its tip is unchanged, do nothing. |
 
-## Operator commands (run as root on the target)
+Bootstrap starts with a commit pin. **No push can update the machine until an operator explicitly chooses a branch.** For example, following `branch:candidate` ignores pushes to `main`.
+
+> ⚠️ **Tracking a branch trusts future pushes to that branch as potential OS updates.** Protect it with your own review and checks. A successful build does not prove a safe boot.
+
+## Make a selection
+
+Run these commands **as root on the target**, using its root-owned consumer checkout and private machine directory:
 
 ```bash
+# Keep the machine pinned to a full commit already in the local checkout.
 bash toolkit/deploy.sh deploy REPO commit:FULL_SHA MACHINE_DIR HOST_OUTPUT STATE_DIR
+
+# Follow the current pushed tip of a reviewed branch.
 bash toolkit/deploy.sh deploy REPO branch:candidate MACHINE_DIR HOST_OUTPUT STATE_DIR
+```
+
+A commit pin may be an unmerged candidate. A later *explicit* branch transition could replace it; review that change carefully.
+
+For a branch, deployment fetches only the selected tip, verifies that it descends from the installed revision, builds it and checks **again** that the tip has not moved before switching. If it moved, retry rather than installing a different commit. Even a selector change with an unchanged tip requires a successful switch.
+
+The timer runs the same branch checks through `poll`; you can also invoke it manually:
+
+```bash
 bash toolkit/deploy.sh poll REPO MACHINE_DIR HOST_OUTPUT STATE_DIR
 ```
 
-A commit pin has no autonomous fetch, build or switch. `deploy` pins an existing local full commit; it warns if moving from the installed commit to an unmerged candidate. To select a branch, `deploy` fetches **only its pushed tip**, requires that it descend from the installed revision, builds it and rechecks that the tip has not moved before switching. Even when the tip equals the installed SHA, changing a selector requires a successful switch. Polling a branch uses the same check, but skips an unchanged tip. A candidate branch ignores pushes to `main`. Protect branches appropriately: a build is not proof of a safe boot.
+## Change branches after a squash or rebase
 
-Do not use a webhook-supplied SHA as authority. A branch name is permission for future pushes to that branch to become OS updates. Run deployment from an operator-reviewed toolkit version; no fetched consumer source controls its selector.
-
-## Explicit reviewed transition (including squash/rebase)
-
-The receipt-bound, non-destructive transition can change a private machine file and select a new branch even when its pushed tip does **not** descend from the old revision:
+Ordinary polling **refuses divergent history**. Do not edit the recorded revision to make it pass. Instead, review the new tip and a credential-free `machine.nix`, then use the explicit, non-destructive transition:
 
 ```bash
 bash toolkit/deploy.sh transition INSTALL_RECEIPT root@HOST REMOTE_REPO BRANCH REVIEWED_MACHINE_DIR REMOTE_MACHINE_DIR HOST_OUTPUT STATE_DIR
 ```
 
-Inspect and approve the new branch tip and credential-free `machine.nix` before running. Transition checks the receipt's installed revision and machine hash against target state, fetches the selected pushed tip, builds with the proposed file, checks the tip again and switches **without Disko**. It then persists the private file, revision and selector. This is the only supported rebaseline after a squash/rebase. Receipt-bound transitions cannot be repeated after the baseline changes; arrange a new reviewed procedure if a later rebaseline is needed. Never edit `revision` to bypass ancestry.
+Transition verifies the install receipt against target state, builds the proposed branch tip with the reviewed machine file, rechecks the tip and switches **without Disko**. Only after a successful switch does it save the new machine file, selector and revision. A receipt-bound transition cannot be repeated after its baseline changes; a later rebaseline needs another reviewed procedure.
 
-## Existing installations and recovery
+## Bring an existing host forward
 
-Legacy installations with only `STATE_DIR/revision` fail closed. Verify the **actually running** generation and revision through the console; stop any old updater and update the pinned consumer configuration to use `poll` (remove the old `branch` and `timer` options). As root run:
+> 🛑 **Do not enable the new timer on a legacy host yet.** A host with only `STATE_DIR/revision` fails closed; merging this toolkit PR does not change a live machine.
 
-```bash
-bash toolkit/deploy.sh migrate STATE_DIR commit:ACTUALLY_INSTALLED_FULL_SHA
-```
+1. Stop the old updater. Through the console, confirm the **revision actually installed** and compare it with `STATE_DIR/revision`.
+2. Update the consumer's pinned toolkit and NixOS module to use `poll`; remove the old `branch` and `timer` options.
+3. As root, pin the verified revision:
 
-Migration accepts only the recorded revision as a commit pin. Inspect discrepancies before migrating. Use `deploy` or an explicit reviewed transition to enable branch tracking. Do not enable the new timer until this procedure is complete; deploying code alone does not change a live host.
+   ```bash
+   bash toolkit/deploy.sh migrate STATE_DIR commit:ACTUALLY_INSTALLED_FULL_SHA
+   ```
 
-Fetch, validation and build failures leave recorded state and the running generation alone. Once a switch begins, even a nonzero result may have partially activated services: `needs-inspection` blocks all future polls, deployments and transitions. Stop the timer, inspect `journalctl -u themoss-update -n 100`, `nixos-rebuild list-generations`, the running system and both state files; restore/roll back as needed. Only after confirming the recorded revision and selector match the recovered generation should the operator remove `needs-inspection` and resume. If a post-switch state write fails, inspect both files before recovery. NixOS generations are not off-host backups.
+4. Enable the timer. It now fires harmlessly in commit mode. Select a branch with `deploy` or a reviewed transition **only when ready**.
 
-Poll, deploy, bootstrap and transition serialize through `STATE_DIR/lock` (transition upload preparation releases the lock during transfer; final application revalidates the baseline under lock). None invokes Disko or replaces secrets. Keep private keys out of staged `machine.nix` and `facter.json`: Nix store inputs are readable.
+Migration accepts only the revision already recorded. If that differs from the running machine, **stop and investigate** rather than changing state by hand.
 
-## Dependency updates
+## If an update fails
 
-The [reusable PR workflow](../.github/workflows/lock-updates.yml) is separate from host polling. Consumers supply their App credentials, schedule, tests and required checks; see [App permissions](app-permissions.md). CI uses only local Git fixtures and mocked Nix/SSH, never a live host.
+- **Fetch, validation or build failed?** The running generation and recorded selection/revision stay unchanged.
+- **Switch started, then failed?** Services may be partly activated. The toolkit leaves `STATE_DIR/needs-inspection` to block further automation.
+
+For an uncertain switch:
+
+- [ ] Stop the timer and inspect `journalctl -u themoss-update -n 100`, `nixos-rebuild list-generations`, the running system and both state files.
+- [ ] Recover or roll back through SSH or the provider console. **NixOS generations are not off-host backups.**
+- [ ] Only after confirming the recorded selector and revision match the recovered generation, remove `needs-inspection` and resume.
+
+### Who owns the state?
+
+`STATE_DIR` must be root-owned and mode `0700`. It holds `selector` (mode `0600`), `revision` (the last successfully switched full SHA), a shared operation lock and, when needed, `needs-inspection`. Keep it **outside the fetched checkout and Nix store**. Polls, deployments and transitions serialize; none repartitions disks or overwrites secrets. Keep credentials out of staged `machine.nix` and `facter.json`—Nix store inputs can be world-readable.
+
+The consumer owns branch protection, timer cadence, private machine generation, credentials and CI policy. Pin the toolkit separately in the consumer's `flake.lock`; a webhook-supplied SHA is *not* deployment authority. For dependency-update PRs rather than host polling, see the [reusable workflow](../.github/workflows/lock-updates.yml) and [App permissions](app-permissions.md).
