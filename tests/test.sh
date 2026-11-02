@@ -10,13 +10,22 @@ export TMPDIR="$tmp"
 mkdir -p "$tmp/bin" "$tmp/machine" "$tmp/state" "$tmp/repo"
 export PATH="$tmp/bin:$PATH" MOCK_LOG="$tmp/log" MOCK_PROBE="$tmp/probe" MOCK_FAIL='' MOCK_DIVERGE=''
 printf 'candidate\n' >"$tmp/machine/machine.nix"
+chmod 600 "$tmp/machine/machine.nix"
+export THEMOSS_TEST_ROOT=1
 printf '%s\n' x86_64 >"$tmp/probe"
 printf '%s\n' bios >>"$tmp/probe"
 printf '%s\n' '[{"dev":"eth0"}]' >>"$tmp/probe"
 printf '%s\n' '{"blockdevices":[{"path":"/dev/vda","type":"disk","size":1000,"model":"A","serial":"123"}]}' >>"$tmp/probe"
 cat >"$tmp/bin/ssh" <<'EOF'
 #!/usr/bin/env bash
-if [[ ${*: -1} == *'cat /sys/class/net/'* ]]; then echo aa:bb:cc:dd:ee:ff; else cat "$MOCK_PROBE"; fi
+[[ $1 == -o && $2 == StrictHostKeyChecking=yes ]] || exit 77
+[[ ${MOCK_HOST_VERIFIED:-1} == 1 ]] || exit 78
+shift 2
+shift # target
+if [[ $* == *'cat /sys/class/net/'* ]]; then echo aa:bb:cc:dd:ee:ff
+elif [[ $* == tar\ -xf* && ${MOCK_UPLOAD_FAIL:-0} == 1 ]]; then exit 79
+elif [[ $* == bash\ -s\ --* || $* == tar\ -xf* ]]; then bash -c "$*"
+else cat "$MOCK_PROBE"; fi
 EOF
 cat >"$tmp/bin/nix" <<'EOF'
 #!/usr/bin/env bash
@@ -48,15 +57,79 @@ printf '{}\n' >"$tmp/repo/flake.lock"
 printf '{ outputs = _: { }; }\n' >"$tmp/repo/flake.nix"
 git -C "$tmp/repo" add .; git -C "$tmp/repo" commit -qm initial
 first=$(git -C "$tmp/repo" rev-parse HEAD)
-printf 'no\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/machine" test > /dev/null 2>&1 && { echo 'confirmation bypass' >&2; exit 1; }
-! grep -q ERASE "$tmp/log"
 # local bare origin gives real fetch/ancestry behavior, with no network.
 git init -q --bare "$tmp/origin.git"
 git -C "$tmp/repo" remote add origin "$tmp/origin.git"
+receipt="$tmp/install-receipt.json"
+printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/machine" test main "$receipt" >/dev/null 2>&1 && exit 1
 git -C "$tmp/repo" push -q origin HEAD:main
+printf 'no\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/machine" test main "$receipt" > /dev/null 2>&1 && { echo 'confirmation bypass' >&2; exit 1; }
+[[ ! -e $receipt ]]
+! grep -q ERASE "$tmp/log"
+printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/machine" test main "$receipt"
+[[ $(jq -r .revision "$receipt") == "$first" && $(stat -c %a "$receipt") == 600 ]]
+if printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/machine" test main "$receipt" >/dev/null 2>&1; then echo 'replaced receipt' >&2; exit 1; fi
+[[ $(grep -c ERASE "$tmp/log") == 1 ]]
+cat >"$tmp/bin/systemctl" <<'EOF'
+#!/usr/bin/env bash
+echo "unexpected timer call $*" >>"$MOCK_LOG"
+exit 86 # candidate has no updater timer unit
+EOF
+chmod +x "$tmp/bin/systemctl"
+bootstrap() { bash "$cli" bootstrap "$receipt" "$tmp/repo" "$tmp/machine" "$tmp/remote/repo" "$tmp/remote/machine" "$tmp/remote/state"; }
+export MOCK_HOST_VERIFIED=0
+if bootstrap >/dev/null 2>&1; then echo 'accepted unverified host key' >&2; exit 1; fi
+export MOCK_HOST_VERIFIED=1 MOCK_UPLOAD_FAIL=1
+if bootstrap >/dev/null 2>&1; then echo 'accepted incomplete upload' >&2; exit 1; fi
+[[ ! -e $tmp/remote/state/revision ]]
+export MOCK_UPLOAD_FAIL=0
+bootstrap
+[[ $(<"$tmp/remote/state/revision") == "$first" ]]
+[[ $(git -C "$tmp/remote/repo" rev-parse HEAD) == "$first" ]]
+! grep -q 'unexpected timer call' "$tmp/log"
+bootstrap # idempotent retry
+# Interrupted upload and incomplete state recover without changing the commit.
+rm "$tmp/remote/state/revision" "$tmp/remote/machine/machine.nix"
+mkdir -p "$tmp/remote/state/incoming"
+printf 'partial\n' >"$tmp/remote/state/incoming/machine.nix"
+bootstrap
+[[ $(<"$tmp/remote/state/revision") == "$first" ]]
+[[ $(<"$tmp/remote/machine/machine.nix") == candidate ]]
+printf 'wrong\n' >"$tmp/remote/machine/machine.nix"
+if bootstrap >/dev/null 2>&1; then echo 'overwrote private file' >&2; exit 1; fi
+printf 'candidate\n' >"$tmp/remote/machine/machine.nix"
+printf '%040d\n' 0 >"$tmp/remote/state/revision"
+if bootstrap >/dev/null 2>&1; then echo 'overwrote unrelated revision' >&2; exit 1; fi
+printf '%s\n' "$first" >"$tmp/remote/state/revision"
+git -C "$tmp/remote/repo" remote set-url origin "$tmp/origin.git/other"
+if bootstrap >/dev/null 2>&1; then echo 'accepted unrelated checkout' >&2; exit 1; fi
+git -C "$tmp/remote/repo" remote set-url origin "$tmp/origin.git"
+printf 'different\n' >"$tmp/machine/machine.nix"
+if bootstrap >/dev/null 2>&1; then echo 'accepted changed installed machine facts' >&2; exit 1; fi
+printf 'candidate\n' >"$tmp/machine/machine.nix"
 printf 'change\n' >"$tmp/repo/version"
 git -C "$tmp/repo" add version; git -C "$tmp/repo" commit -qm next
 git -C "$tmp/repo" push -q origin HEAD:main
+mkdir "$tmp/reviewed"
+printf 'production\n' >"$tmp/reviewed/machine.nix"; chmod 600 "$tmp/reviewed/machine.nix"
+transition() { bash "$cli" transition "$receipt" root@example "$tmp/remote/repo" main "$tmp/reviewed" "$tmp/remote/machine" test "$tmp/remote/state"; }
+MOCK_FAIL=build transition >/dev/null 2>&1 && { echo 'transition build failed open' >&2; exit 1; }
+[[ $(<"$tmp/remote/state/revision") == "$first" && $(<"$tmp/remote/machine/machine.nix") == candidate ]]
+next=$(git -C "$tmp/repo" rev-parse HEAD)
+git -C "$tmp/repo" checkout -q --orphan rewrite
+printf 'rewrite\n' >"$tmp/repo/version"
+git -C "$tmp/repo" add version; git -C "$tmp/repo" commit -qm rewritten
+git -C "$tmp/repo" push -q --force origin HEAD:main
+if transition >/dev/null 2>&1; then echo 'transition accepted divergent history' >&2; exit 1; fi
+[[ $(<"$tmp/remote/state/revision") == "$first" && $(<"$tmp/remote/machine/machine.nix") == candidate ]]
+git -C "$tmp/repo" reset -q --hard "$next"
+git -C "$tmp/repo" push -q --force origin HEAD:main
+transition
+[[ $(<"$tmp/remote/state/revision") == $(git -C "$tmp/repo" rev-parse HEAD) ]]
+[[ $(<"$tmp/remote/machine/machine.nix") == production ]]
+! grep -q 'unexpected timer call' "$tmp/log"
+[[ $(grep -c ERASE "$tmp/log") == 1 ]]
+: >"$tmp/log"
 printf '%s\n' "$first" >"$tmp/state/revision"
 MOCK_FAIL=build bash "$cli" update "$tmp/repo" main "$tmp/machine" test "$tmp/state" >/dev/null 2>&1 && { echo 'build failed open' >&2; exit 1; }
 [[ $(<"$tmp/state/revision") == "$first" ]]
