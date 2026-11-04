@@ -6,8 +6,8 @@ cd "$root"
 command -v argc >/dev/null || { echo 'argc required (use the pinned dev shell)' >&2; exit 1; }
 tmp=$(mktemp -d "$root/.test-argc.XXXXXXXX"); trap 'rm -rf "$tmp"' EXIT
 mkdir "$tmp/specs"
-bash packages/cli/assemble.sh packages/cli/src/moss.sh "$tmp/moss.sh"
-bash packages/cli/assemble.sh packages/cli/src/machine/deploy.sh "$tmp/deploy.sh"
+bash packages/cli/helpers/assemble.sh packages/cli/src/moss.sh "$tmp/moss.sh"
+bash packages/cli/helpers/assemble.sh packages/cli/src/machine/deploy.sh "$tmp/deploy.sh"
 for name in moss deploy remote audit-app; do
   case $name in
     moss) source="$tmp/moss.sh"; executable=packages/cli/bin/moss; spec=docs/cli-spec/moss.json ;;
@@ -29,7 +29,7 @@ jq -e '[.subcommands[].name] | sort == ["finish","prepare"]' "$tmp/specs/remote.
 jq -e '[.subcommands[] | select(.name == "machine") | .subcommands[].name] | sort == ["apply","bootstrap","plan"]' "$tmp/specs/moss.json" >/dev/null
 bash -n packages/cli/bin/moss "$tmp/moss.sh"
 ! grep -q '^# @include ' packages/cli/bin/moss packages/cli/bin/machine/deploy.sh
-bash packages/cli/render-cli-reference.sh "$tmp/specs" >"$tmp/reference.md"
+bash packages/cli/helpers/render-cli-reference.sh "$tmp/specs" >"$tmp/reference.md"
 cmp docs/cli-reference.md "$tmp/reference.md" || { echo 'regenerate docs/cli-reference.md' >&2; exit 1; }
 argc --argc-mangen "$tmp/deploy.sh" "$tmp/man" >/dev/null
 [[ -s $tmp/man/deploy-install.1 && -s $tmp/man/deploy-inputs-apply.1 ]]

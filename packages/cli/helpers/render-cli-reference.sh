@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Render the argc-exported JSON command trees; do not hand-edit the result.
 set -euo pipefail
-root=$(cd "$(dirname "$0")/../.." && pwd -P)
+root=$(cd "$(dirname "$0")/../../.." && pwd -P)
 specs=${1:-$root/docs/cli-spec}
 printf '# moss machine command reference\n\n'
 printf '> Generated from the argc JSON spec. For destructive-operation safeguards and recovery, follow the [deployment runbook](deployment.md), not this command list.\n'

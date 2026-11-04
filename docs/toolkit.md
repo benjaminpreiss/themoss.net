@@ -51,14 +51,14 @@ For contributors, use `.#dev`, which adds pinned argc to the same tools:
 
 ```bash
 nix develop --no-write-lock-file .#dev
-bash packages/cli/regenerate.sh # rebuild Bash, JSON specs and Markdown reference
+bash packages/cli/build.sh # build Bash, JSON specs and Markdown reference
 bash tests/argc.sh
 bash tests/test.sh
 ```
 
-The committed [JSON specs](cli-spec/) are produced from the assembled argc sources; [`render-cli-reference.sh`](../packages/cli/render-cli-reference.sh) turns the public `moss` spec into Markdown. Both artifacts are checked for drift in the GitHub **Toolkit checks** job (`tests/consumer-commands.sh` runs `tests/argc.sh` in `.#dev`). Use the JSON to inspect command names and positional parameters.
+The committed [JSON specs](cli-spec/) are produced from the assembled argc sources; [`render-cli-reference.sh`](../packages/cli/helpers/render-cli-reference.sh) turns the public `moss` spec into Markdown. Both artifacts are checked for drift in the GitHub **Toolkit checks** job (`tests/consumer-commands.sh` runs `tests/argc.sh` in `.#dev`). Use the JSON to inspect command names and positional parameters.
 
-**Contributors:** opt into the plain Bash pre-commit hook with `git config core.hooksPath .githooks` (Git stores this setting in the shared config of linked worktrees; enable it deliberately). The hook runs the pinned generation check and refuses to commit unstaged CLI source/generated changes. No npm or Node dependency is required. If it reports drift, use `nix develop --no-write-lock-file .#dev`, run `bash packages/cli/regenerate.sh`, and stage the updated scripts, JSON and Markdown.
+**Contributors:** opt into the plain Bash pre-commit hook with `git config core.hooksPath .githooks` (Git stores this setting in the shared config of linked worktrees; enable it deliberately). The hook runs the pinned generation check and refuses to commit unstaged CLI source/generated changes. No npm or Node dependency is required. If it reports drift, use `nix develop --no-write-lock-file .#dev`, run `bash packages/cli/build.sh`, and stage the updated scripts, JSON and Markdown.
 
 The GitHub App cannot update `.github/workflows/`, so [updated CI](workflow-drafts/ci.yml), [audit](workflow-drafts/lock-updates.yml) and [generation](workflow-drafts/generate-cli-docs.yml) workflow files are staged under `docs/workflow-drafts/` for a maintainer with workflow-write access to install. The current `.github/workflows/generate-cli-docs` has **no `.yml`/`.yaml` extension**, so GitHub does not run it. Until the drafts are installed, the existing CI still references pre-restructure paths. Generated command docs describe the interface, not the private configuration or proof of safety; the executable gates and runbook remain authoritative. CI compares generated scripts byte-for-byte against the pinned argc version.
 
