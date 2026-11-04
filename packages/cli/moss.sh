@@ -1,0 +1,702 @@
+#!/usr/bin/env bash
+# Operator interface. internal/ is not a public namespace.
+# Keep off-host configuration and plans out of the Nix store.
+# @describe Plan and apply reviewed changes to a themoss machine
+set -euo pipefail
+umask 077
+fail() { echo "moss: $*" >&2; exit 1; }
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+while [[ $root != / && ! -f $root/internal/deploy.sh ]]; do root=$(dirname "$root"); done
+[[ -f $root/internal/deploy.sh ]] || fail 'the pinned CLI implementation is missing'
+deploy=$root/internal/deploy.sh
+private_file() {
+  [[ $1 == /* && $1 != *..* && -f $1 && ! -L $1 && $(stat -c %a "$1") == 600 ]] || fail "expected absolute mode-600 private file: $1"
+  [[ $(realpath -m "$1") == "$(realpath "$1")" ]] || fail 'linked private path'
+}
+config_file() {
+  private_file "$1"
+  jq -e '
+    type == "object" and .version == 1 and
+    ((keys - ["version","repo","revision","branch","output","machine","receipt","remoteCheckout","remoteMachine","remoteState","reportGenerator","recoveryDir","preEraseCheck"]) == []) and
+    ([.repo,.revision,.branch,.output,.machine,.receipt,.remoteCheckout,.remoteMachine,.remoteState] | all(type == "string" and length > 0)) and
+    ([.reportGenerator // "-",.recoveryDir // "-",.preEraseCheck // "-"] | all(type == "string" and length > 0))
+  ' "$1" >/dev/null || fail 'invalid private machine configuration'
+  local repo path relative machine
+  repo=$(jq -r .repo "$1") machine=$(jq -r .machine "$1")
+  [[ $repo == /* && -d $repo && ! -L $repo && $(realpath -m "$repo") == "$(realpath "$repo")" ]] || fail 'invalid checkout'
+  [[ $machine == /* && $machine != *..* && -d $machine && ! -L $machine && -f $machine/machine.nix && ! -L $machine/machine.nix && $(stat -c %a "$machine/machine.nix") == 600 ]] || fail 'unsafe private machine input'
+  [[ $(realpath -m "$machine") == "$(realpath "$machine")" ]] || fail 'linked private machine path'
+  path=$(realpath "$1")
+  if [[ $path == "$repo/"* ]]; then
+    relative=${path#"$repo/"}
+    git -C "$repo" check-ignore -q -- "$relative" || fail 'private configuration in checkout must be Git-ignored'
+    [[ -z $(git -C "$repo" ls-files -- "$relative") ]] || fail 'tracked private configuration'
+  fi
+}
+# Never evaluate operator JSON as shell. This is a private adapter to the
+# existing strict toolkit validator; the generated manifest is ephemeral.
+legacy_input() {
+  local config=$1 target=$2 disk=$3 record=$4 destination=$5
+  jq -n --argjson c "$(jq -c . "$config")" --arg target "$target" --arg disk "$disk" --arg record "$record" \
+    '$c + {target:$target,disk:$disk,record:$record}' >"$destination"
+  chmod 600 "$destination"
+}
+remote_call() {
+  local target=$1 task=$2 arg quoted cmd="bash -s -- $2"
+  shift 2
+  for arg in "$@"; do printf -v quoted '%q' "$arg"; cmd+=" $quoted"; done
+  ssh -o StrictHostKeyChecking=yes "$target" "$cmd" <"$deploy"
+}
+# @cmd Operate on a machine
+machine() { :; }
+
+# @cmd Inspect the target and build a non-destructive reviewed installation plan
+# @arg target! <ROOT@HOST> Known rescue SSH target (verify host key independently)
+# @option --config! <FILE> Private off-host desired configuration
+# @option --disk <DISK> Explicit whole /dev disk for a fresh install; omit for an installed host
+# @option --output! <FILE> New private plan file
+machine::plan() {
+  local config=$argc_config target=$argc_target disk=${argc_disk:-} output=$argc_output
+  [[ $target =~ ^root@[a-zA-Z0-9_.:-]+$ ]] || fail 'invalid SSH target'
+  [[ $output == /* && $output != *..* && ! -e $output && ! -L $output && -d $(dirname "$output") && ! -L $(dirname "$output") ]] || fail 'choose a new absolute private plan path'
+  config_file "$config"
+  local tmp record manifest repo rev machine host branch generator check sha facter origin receipt checkout remote_machine state expected
+  repo=$(jq -r .repo "$config") rev=$(jq -r .revision "$config")
+  machine=$(jq -r .machine "$config") host=$(jq -r .output "$config")
+  branch=$(jq -r .branch "$config") receipt=$(jq -r .receipt "$config")
+  origin=$(git -C "$repo" remote get-url origin)
+  if [[ -e $receipt || -L $receipt ]]; then
+    [[ -z $disk ]] || fail 'installed receipt exists; never reformat to repair or update'
+    private_file "$receipt"
+    [[ $target == "$(jq -er .target "$receipt")" && $origin == "$(jq -er .origin "$receipt")" ]] || fail 'receipt target or origin changed'
+    checkout=$(jq -r .remoteCheckout "$config") remote_machine=$(jq -r .remoteMachine "$config") state=$(jq -r .remoteState "$config")
+    for path in "$checkout" "$remote_machine" "$state"; do
+      [[ $path =~ ^/[a-zA-Z0-9_./-]+$ && $path != *..* ]] || fail 'invalid target path'
+    done
+    [[ $host =~ ^[a-zA-Z0-9_-]+$ && $rev =~ ^[0-9a-f]{40}$ && $branch =~ ^[a-zA-Z0-9_/-]+$ && $branch != *..* ]] || fail 'invalid update reference'
+    expected=$(remote_call "$target" plan-update "$checkout" "$remote_machine" "$host" "$state" "$branch" "$rev" "$origin")
+    jq -e --arg rev "$rev" --arg sha "$(sha256sum "$machine/machine.nix" | cut -d ' ' -f1)" --arg selected "branch:$branch" \
+      '.next == $rev and .machineSha256 == $sha and .selected == $selected' <<<"$expected" >/dev/null || fail 'update differs from reviewed inputs; transition requires separate review'
+    tmp=$(mktemp -d "$(dirname "$output")/.moss-plan.XXXXXXXX")
+    trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
+    jq -n --arg config "$(realpath "$config")" --arg configSha256 "$(sha256sum "$config" | cut -d ' ' -f1)" \
+      --arg target "$target" --arg origin "$origin" --argjson expected "$expected" \
+      '{version:1,type:"update",config:$config,configSha256:$configSha256,target:$target,origin:$origin,expected:$expected}' >"$tmp/plan.json"
+    chmod 600 "$tmp/plan.json"
+    [[ ! -e $output && ! -L $output ]] || fail 'plan appeared during evaluation'
+    ln -- "$tmp/plan.json" "$output" || fail 'cannot publish plan'
+    echo "Reviewed update plan: $target $(jq -r .current <<<"$expected") -> $rev (no disk action). Saved $output"
+    return
+  fi
+  [[ $disk =~ ^/dev/[a-zA-Z0-9_./-]+$ && $disk != *..* ]] || fail 'fresh install requires an explicitly chosen whole /dev disk'
+  tmp=$(mktemp -d "$(dirname "$output")/.moss-plan.XXXXXXXX")
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
+  record=$tmp/record.json manifest=$tmp/inputs.json
+  bash "$deploy" discover "$target" "$disk" "$record"
+  legacy_input "$config" "$target" "$disk" "$record" "$manifest"
+  bash "$deploy" manifest plan "$manifest"
+  generator=$(jq -r '.reportGenerator // "-"' "$config")
+  check=$(jq -r '.preEraseCheck // "-"' "$config")
+  bash "$deploy" plan-build "$record" "$repo" "$rev" "$machine" "$host" "$branch" "$generator" "$check"
+  sha=$(sha256sum "$machine/machine.nix" | cut -d ' ' -f1)
+  facter=''
+  if [[ -e $machine/facter.json ]]; then facter=$(sha256sum "$machine/facter.json" | cut -d ' ' -f1); fi
+  jq -n --arg config "$(realpath "$config")" --arg configSha256 "$(sha256sum "$config" | cut -d ' ' -f1)" \
+    --arg target "$target" --arg disk "$disk" --arg machineSha256 "$sha" --arg facterSha256 "$facter" \
+    --arg origin "$origin" --argjson observed "$(jq -c . "$record")" \
+    '{version:1,type:"install",config:$config,configSha256:$configSha256,target:$target,disk:$disk,observed:$observed,machineSha256:$machineSha256,facterSha256:$facterSha256,origin:$origin}' >"$tmp/plan.json"
+  chmod 600 "$tmp/plan.json"
+  [[ ! -e $output && ! -L $output ]] || fail 'plan appeared during evaluation'
+  ln -- "$tmp/plan.json" "$output" || fail 'cannot publish plan'
+  echo "Installation plan saved: $output (review before applying; not an authorization to erase)"
+}
+
+# @cmd Revalidate and apply a reviewed plan; installation erases the selected disk
+# @arg plan! <FILE> Private typed plan produced by machine plan
+machine::apply() {
+  local plan=$argc_plan
+  private_file "$plan"
+  if [[ $(jq -er '.type' "$plan") == update ]]; then
+    jq -e 'type == "object" and .version == 1 and .type == "update" and
+      ((keys - ["version","type","config","configSha256","target","origin","expected"]) == []) and
+      ([.config,.configSha256,.target,.origin] | all(type == "string" and length > 0)) and
+      (.expected | type == "object" and ((keys - ["current","selected","next","machineSha256"]) == []) and
+        ([.current,.selected,.next,.machineSha256] | all(type == "string" and length > 0)))
+    ' "$plan" >/dev/null || fail 'invalid update plan'
+    local config target repo receipt origin checkout machine state host branch expected_current expected_next expected_sha
+    config=$(jq -r .config "$plan") target=$(jq -r .target "$plan")
+    config_file "$config"
+    [[ $(sha256sum "$config" | cut -d ' ' -f1) == "$(jq -r .configSha256 "$plan")" ]] || fail 'configuration changed; make a new plan'
+    repo=$(jq -r .repo "$config") receipt=$(jq -r .receipt "$config")
+    private_file "$receipt"
+    origin=$(git -C "$repo" remote get-url origin)
+    [[ $target == "$(jq -er .target "$receipt")" && $origin == "$(jq -r .origin "$plan")" && $origin == "$(jq -er .origin "$receipt")" ]] || fail 'target or Git origin changed'
+    checkout=$(jq -r .remoteCheckout "$config") machine=$(jq -r .remoteMachine "$config")
+    state=$(jq -r .remoteState "$config") host=$(jq -r .output "$config") branch=$(jq -r .branch "$config")
+    for path in "$checkout" "$machine" "$state"; do
+      [[ $path =~ ^/[a-zA-Z0-9_./-]+$ && $path != *..* ]] || fail 'invalid target path'
+    done
+    expected_current=$(jq -r .expected.current "$plan") expected_next=$(jq -r .expected.next "$plan")
+    expected_sha=$(jq -r .expected.machineSha256 "$plan")
+    [[ $target =~ ^root@[a-zA-Z0-9_.:-]+$ && $host =~ ^[a-zA-Z0-9_-]+$ && $branch =~ ^[a-zA-Z0-9_/-]+$ && $branch != *..* && $expected_next == "$(jq -r .revision "$config")" && $(jq -r .expected.selected "$plan") == "branch:$branch" ]] || fail 'update plan differs from selected branch or revision'
+    [[ -f $(jq -r .machine "$config")/machine.nix && $(sha256sum "$(jq -r .machine "$config")/machine.nix" | cut -d ' ' -f1) == "$expected_sha" ]] || fail 'machine input changed; use a reviewed transition'
+    echo "Applying reviewed UPDATE $target: $expected_current -> $expected_next (never erases disks)" >&2
+    remote_call "$target" apply-reviewed "$checkout" "$machine" "$host" "$state" "branch:$branch" "$expected_current" "$expected_next" "$expected_sha" "$origin"
+    return
+  fi
+  jq -e 'type == "object" and .version == 1 and .type == "install" and
+    ((keys - ["version","type","config","configSha256","target","disk","observed","machineSha256","facterSha256","origin"]) == []) and
+    ([.config,.configSha256,.target,.disk,.machineSha256,.origin] | all(type == "string" and length > 0)) and
+    (.facterSha256 | type == "string") and (.observed | type == "object")' "$plan" >/dev/null || fail 'unknown or invalid plan type; no action taken'
+  local config target disk tmp record manifest machine repo facter
+  config=$(jq -r .config "$plan") target=$(jq -r .target "$plan") disk=$(jq -r .disk "$plan")
+  config_file "$config"
+  [[ $(sha256sum "$config" | cut -d ' ' -f1) == "$(jq -r .configSha256 "$plan")" ]] || fail 'configuration changed; make a new plan'
+  repo=$(jq -r .repo "$config") machine=$(jq -r .machine "$config")
+  [[ $(git -C "$repo" remote get-url origin) == "$(jq -r .origin "$plan")" ]] || fail 'Git origin changed; make a new plan'
+  [[ $(sha256sum "$machine/machine.nix" | cut -d ' ' -f1) == "$(jq -r .machineSha256 "$plan")" ]] || fail 'machine input changed; make a new plan'
+  facter=$(jq -r .facterSha256 "$plan")
+  if [[ -n $facter ]]; then
+    [[ -f $machine/facter.json && ! -L $machine/facter.json && $(sha256sum "$machine/facter.json" | cut -d ' ' -f1) == "$facter" ]] || fail 'hardware report changed; make a new plan'
+  else
+    [[ ! -e $machine/facter.json && ! -L $machine/facter.json ]] || fail 'hardware report changed; make a new plan'
+  fi
+  [[ $target == "$(jq -r .observed.target "$plan")" && $disk == "$(jq -r .observed.disk.path "$plan")" ]] || fail 'plan target or disk differs from recorded facts'
+  tmp=$(mktemp -d "$(dirname "$plan")/.moss-apply.XXXXXXXX")
+  trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
+  record=$tmp/record.json manifest=$tmp/inputs.json
+  jq .observed "$plan" >"$record"; chmod 600 "$record"
+  legacy_input "$config" "$target" "$disk" "$record" "$manifest"
+  bash "$deploy" manifest plan "$manifest"
+  echo "Applying reviewed INSTALL plan to $target: erase $disk after typed confirmation" >&2
+  # The existing installer repeats the build, consumer check, target probe and
+  # branch-tip check. Report generation occurred during plan, never here.
+  jq 'del(.reportGenerator)' "$manifest" >"$tmp/install.json"
+  chmod 600 "$tmp/install.json"
+  bash "$deploy" manifest install "$tmp/install.json"
+}
+
+# @cmd Resume first-boot handoff after independently verifying the new SSH host key
+# @arg receipt! <FILE> Off-host installation receipt
+# @option --config! <FILE> Original private machine configuration
+machine::bootstrap() {
+  local receipt=$argc_receipt config=$argc_config
+  private_file "$receipt"; config_file "$config"
+  local repo machine checkout remote_machine state
+  repo=$(jq -r .repo "$config") machine=$(jq -r .machine "$config")
+  checkout=$(jq -r .remoteCheckout "$config") remote_machine=$(jq -r .remoteMachine "$config") state=$(jq -r .remoteState "$config")
+  [[ $receipt == "$(jq -r .receipt "$config")" ]] || fail 'receipt differs from configuration'
+  bash "$deploy" bootstrap "$receipt" "$repo" "$machine" "$checkout" "$remote_machine" "$state"
+}
+
+# ARGC-BUILD {
+# This block was generated by argc (https://github.com/sigoden/argc).
+# Modifying it manually is not recommended
+
+_argc_run() {
+    if [[ "${1:-}" == "___internal___" ]]; then
+        _argc_die "error: unsupported ___internal___ command"
+    fi
+    if [[ "${OS:-}" == "Windows_NT" ]] && [[ -n "${MSYSTEM:-}" ]]; then
+        set -o igncr
+    fi
+    argc__args=("$(basename "$0" .sh)" "$@")
+    argc__positionals=()
+    _argc_index=1
+    _argc_len="${#argc__args[@]}"
+    _argc_tools=()
+    _argc_parse
+    if [ -n "${argc__fn:-}" ]; then
+        $argc__fn "${argc__positionals[@]}"
+    fi
+}
+
+_argc_usage() {
+    cat <<-'EOF'
+Plan and apply reviewed changes to a themoss machine
+
+USAGE: moss <COMMAND>
+
+COMMANDS:
+  machine  Operate on a machine
+EOF
+    exit
+}
+
+_argc_version() {
+    echo moss 0.0.0
+    exit
+}
+
+_argc_parse() {
+    local _argc_key _argc_action
+    local _argc_subcmds="machine"
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage
+            ;;
+        --version | -version | -V)
+            _argc_version
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        machine)
+            _argc_index=$((_argc_index + 1))
+            _argc_action=_argc_parse_machine
+            break
+            ;;
+        help)
+            local help_arg="${argc__args[$((_argc_index + 1))]:-}"
+            case "$help_arg" in
+            machine)
+                _argc_usage_machine
+                ;;
+            "")
+                _argc_usage
+                ;;
+            *)
+                _argc_die "error: invalid value \`$help_arg\` for \`<command>\`"$'\n'"  [possible values: $_argc_subcmds]"
+                ;;
+            esac
+            ;;
+        *)
+            _argc_die "error: \`moss\` requires a subcommand but one was not provided"$'\n'"  [subcommands: $_argc_subcmds]"
+            ;;
+        esac
+    done
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        _argc_usage
+    fi
+}
+
+_argc_usage_machine() {
+    cat <<-'EOF'
+Operate on a machine
+
+USAGE: moss machine <COMMAND>
+
+COMMANDS:
+  plan       Inspect the target and build a non-destructive reviewed installation plan
+  apply      Revalidate and apply a reviewed plan; installation erases the selected disk
+  bootstrap  Resume first-boot handoff after independently verifying the new SSH host key
+EOF
+    exit
+}
+
+_argc_parse_machine() {
+    local _argc_key _argc_action
+    local _argc_subcmds="plan, apply, bootstrap"
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage_machine
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        plan)
+            _argc_index=$((_argc_index + 1))
+            _argc_action=_argc_parse_machine_plan
+            break
+            ;;
+        apply)
+            _argc_index=$((_argc_index + 1))
+            _argc_action=_argc_parse_machine_apply
+            break
+            ;;
+        bootstrap)
+            _argc_index=$((_argc_index + 1))
+            _argc_action=_argc_parse_machine_bootstrap
+            break
+            ;;
+        help)
+            local help_arg="${argc__args[$((_argc_index + 1))]:-}"
+            case "$help_arg" in
+            plan)
+                _argc_usage_machine_plan
+                ;;
+            apply)
+                _argc_usage_machine_apply
+                ;;
+            bootstrap)
+                _argc_usage_machine_bootstrap
+                ;;
+            "")
+                _argc_usage_machine
+                ;;
+            *)
+                _argc_die "error: invalid value \`$help_arg\` for \`<command>\`"$'\n'"  [possible values: $_argc_subcmds]"
+                ;;
+            esac
+            ;;
+        *)
+            _argc_die "error: \`moss-machine\` requires a subcommand but one was not provided"$'\n'"  [subcommands: $_argc_subcmds]"
+            ;;
+        esac
+    done
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        _argc_usage_machine
+    fi
+}
+
+_argc_usage_machine_plan() {
+    cat <<-'EOF'
+Inspect the target and build a non-destructive reviewed installation plan
+
+USAGE: moss machine plan [OPTIONS] --config <FILE> --output <FILE> <ROOT@HOST>
+
+ARGS:
+  <ROOT@HOST>  Known rescue SSH target (verify host key independently)
+
+OPTIONS:
+      --config <FILE>  Private off-host desired configuration
+      --disk <DISK>    Explicit whole /dev disk for a fresh install; omit for an installed host
+      --output <FILE>  New private plan file
+  -h, --help           Print help
+EOF
+    exit
+}
+
+_argc_parse_machine_plan() {
+    local _argc_key _argc_action
+    local _argc_subcmds=""
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage_machine_plan
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        --config)
+            _argc_take_args "--config <FILE>" 1 1 "-" ""
+            _argc_index=$((_argc_index + _argc_take_args_len + 1))
+            if [[ -z "${argc_config:-}" ]]; then
+                argc_config="${_argc_take_args_values[0]:-}"
+            else
+                _argc_die "error: the argument \`--config\` cannot be used multiple times"
+            fi
+            ;;
+        --disk)
+            _argc_take_args "--disk <DISK>" 1 1 "-" ""
+            _argc_index=$((_argc_index + _argc_take_args_len + 1))
+            if [[ -z "${argc_disk:-}" ]]; then
+                argc_disk="${_argc_take_args_values[0]:-}"
+            else
+                _argc_die "error: the argument \`--disk\` cannot be used multiple times"
+            fi
+            ;;
+        --output)
+            _argc_take_args "--output <FILE>" 1 1 "-" ""
+            _argc_index=$((_argc_index + _argc_take_args_len + 1))
+            if [[ -z "${argc_output:-}" ]]; then
+                argc_output="${_argc_take_args_values[0]:-}"
+            else
+                _argc_die "error: the argument \`--output\` cannot be used multiple times"
+            fi
+            ;;
+        *)
+            if _argc_maybe_flag_option "-" "$_argc_item"; then
+                _argc_die "error: unexpected argument \`$_argc_key\` found"
+            fi
+            argc__positionals+=("$_argc_item")
+            _argc_index=$((_argc_index + 1))
+            ;;
+        esac
+    done
+    _argc_require_params "error: the following required arguments were not provided:" \
+        'argc_config:--config <FILE>' 'argc_output:--output <FILE>'
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        argc__fn=machine::plan
+        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
+            _argc_usage_machine_plan
+        fi
+        _argc_match_positionals 0
+        local values_index values_size
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_target="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<ROOT@HOST>\` were not provided"
+        fi
+    fi
+}
+
+_argc_usage_machine_apply() {
+    cat <<-'EOF'
+Revalidate and apply a reviewed plan; installation erases the selected disk
+
+USAGE: moss machine apply <FILE>
+
+ARGS:
+  <FILE>  Private typed plan produced by machine plan
+EOF
+    exit
+}
+
+_argc_parse_machine_apply() {
+    local _argc_key _argc_action
+    local _argc_subcmds=""
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage_machine_apply
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        *)
+            argc__positionals+=("$_argc_item")
+            _argc_index=$((_argc_index + 1))
+            ;;
+        esac
+    done
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        argc__fn=machine::apply
+        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
+            _argc_usage_machine_apply
+        fi
+        _argc_match_positionals 0
+        local values_index values_size
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_plan="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<FILE>\` were not provided"
+        fi
+    fi
+}
+
+_argc_usage_machine_bootstrap() {
+    cat <<-'EOF'
+Resume first-boot handoff after independently verifying the new SSH host key
+
+USAGE: moss machine bootstrap --config <FILE> <FILE>
+
+ARGS:
+  <FILE>  Off-host installation receipt
+
+OPTIONS:
+      --config <FILE>  Original private machine configuration
+  -h, --help           Print help
+EOF
+    exit
+}
+
+_argc_parse_machine_bootstrap() {
+    local _argc_key _argc_action
+    local _argc_subcmds=""
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage_machine_bootstrap
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        --config)
+            _argc_take_args "--config <FILE>" 1 1 "-" ""
+            _argc_index=$((_argc_index + _argc_take_args_len + 1))
+            if [[ -z "${argc_config:-}" ]]; then
+                argc_config="${_argc_take_args_values[0]:-}"
+            else
+                _argc_die "error: the argument \`--config\` cannot be used multiple times"
+            fi
+            ;;
+        *)
+            if _argc_maybe_flag_option "-" "$_argc_item"; then
+                _argc_die "error: unexpected argument \`$_argc_key\` found"
+            fi
+            argc__positionals+=("$_argc_item")
+            _argc_index=$((_argc_index + 1))
+            ;;
+        esac
+    done
+    _argc_require_params "error: the following required arguments were not provided:" \
+        'argc_config:--config <FILE>'
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        argc__fn=machine::bootstrap
+        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
+            _argc_usage_machine_bootstrap
+        fi
+        _argc_match_positionals 0
+        local values_index values_size
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_receipt="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<FILE>\` were not provided"
+        fi
+    fi
+}
+
+_argc_take_args() {
+    _argc_take_args_values=()
+    _argc_take_args_len=0
+    local param="$1" min="$2" max="$3" signs="$4" delimiter="$5"
+    if [[ "$min" -eq 0 ]] && [[ "$max" -eq 0 ]]; then
+        return
+    fi
+    local _argc_take_index=$((_argc_index + 1)) _argc_take_value
+    if [[ "$_argc_item" == *=* ]]; then
+        _argc_take_args_values=("${_argc_item##*=}")
+    else
+        while [[ $_argc_take_index -lt $_argc_len ]]; do
+            _argc_take_value="${argc__args[_argc_take_index]}"
+            if _argc_maybe_flag_option "$signs" "$_argc_take_value"; then
+                if [[ "${#_argc_take_value}" -gt 1 ]]; then
+                    break
+                fi
+            fi
+            _argc_take_args_values+=("$_argc_take_value")
+            _argc_take_args_len=$((_argc_take_args_len + 1))
+            if [[ "$_argc_take_args_len" -ge "$max" ]]; then
+                break
+            fi
+            _argc_take_index=$((_argc_take_index + 1))
+        done
+    fi
+    if [[ "${#_argc_take_args_values[@]}" -lt "$min" ]]; then
+        _argc_die "error: incorrect number of values for \`$param\`"
+    fi
+    if [[ -n "$delimiter" ]] && [[ "${#_argc_take_args_values[@]}" -gt 0 ]]; then
+        local item values arr=()
+        for item in "${_argc_take_args_values[@]}"; do
+            IFS="$delimiter" read -r -a values <<<"$item"
+            arr+=("${values[@]}")
+        done
+        _argc_take_args_values=("${arr[@]}")
+    fi
+}
+
+_argc_match_positionals() {
+    _argc_match_positionals_values=()
+    _argc_match_positionals_len=0
+    local params=("$@")
+    local args_len="${#argc__positionals[@]}"
+    if [[ $args_len -eq 0 ]]; then
+        return
+    fi
+    local params_len=$# arg_index=0 param_index=0
+    while [[ $param_index -lt $params_len && $arg_index -lt $args_len ]]; do
+        local takes=0
+        if [[ "${params[param_index]}" -eq 1 ]]; then
+            if [[ $param_index -eq 0 ]] &&
+                [[ ${_argc_dash:-} -gt 0 ]] &&
+                [[ $params_len -eq 2 ]] &&
+                [[ "${params[$((param_index + 1))]}" -eq 1 ]] \
+                ; then
+                takes=${_argc_dash:-}
+            else
+                local arg_diff=$((args_len - arg_index)) param_diff=$((params_len - param_index))
+                if [[ $arg_diff -gt $param_diff ]]; then
+                    takes=$((arg_diff - param_diff + 1))
+                else
+                    takes=1
+                fi
+            fi
+        else
+            takes=1
+        fi
+        _argc_match_positionals_values+=("$arg_index:$takes")
+        arg_index=$((arg_index + takes))
+        param_index=$((param_index + 1))
+    done
+    if [[ $arg_index -lt $args_len ]]; then
+        _argc_match_positionals_values+=("$arg_index:$((args_len - arg_index))")
+    fi
+    _argc_match_positionals_len=${#_argc_match_positionals_values[@]}
+    if [[ $params_len -gt 0 ]] && [[ $_argc_match_positionals_len -gt $params_len ]]; then
+        local index="${_argc_match_positionals_values[params_len]%%:*}"
+        _argc_die "error: unexpected argument \`${argc__positionals[index]}\` found"
+    fi
+}
+
+_argc_require_params() {
+    local message="$1" missed_envs="" item name render_name
+    for item in "${@:2}"; do
+        name="${item%%:*}"
+        render_name="${item##*:}"
+        if [[ -z "${!name:-}" ]]; then
+            missed_envs="$missed_envs"$'\n'"  $render_name"
+        fi
+    done
+    if [[ -n "${missed_envs}" ]]; then
+        _argc_die "$message$missed_envs"
+    fi
+}
+
+_argc_maybe_flag_option() {
+    local signs="$1" arg="$2"
+    if [[ -z "$signs" ]]; then
+        return 1
+    fi
+    local cond=false
+    if [[ "$signs" == *"+"* ]]; then
+        if [[ "$arg" =~ ^\+[^+].* ]]; then
+            cond=true
+        fi
+    elif [[ "$arg" == -* ]]; then
+        if (( ${#arg} < 3 )) || [[ ! "$arg" =~ ^---.* ]]; then
+            cond=true
+        fi
+    fi
+    if [[ "$cond" == "false" ]]; then
+        return 1
+    fi
+    local value="${arg%%=*}"
+    if [[ "$value" =~ [[:space:]] ]]; then
+        return 1
+    fi
+    return 0
+}
+
+_argc_die() {
+    if [[ $# -eq 0 ]]; then
+        cat
+    else
+        echo "$*" >&2
+    fi
+    exit 1
+}
+
+_argc_run "$@"
+
+# ARGC-BUILD }

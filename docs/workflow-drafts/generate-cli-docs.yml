@@ -18,12 +18,12 @@ jobs:
           persist-credentials: true
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31
       - name: Regenerate standalone CLI, JSON specs and Markdown
-        run: nix develop --no-write-lock-file .#operator --command bash toolkit/regenerate-cli.sh
+        run: nix develop --no-write-lock-file .#operator --command bash packages/cli/regenerate.sh
       - name: Commit generated artifacts when they change
         env:
           BRANCH: ${{ github.ref_name }}
         run: |
-          git add -- toolkit/deploy.sh toolkit/bootstrap-remote.sh toolkit/audit-app.sh toolkit/new-operator-manifest.sh docs/cli-spec docs/cli-reference.md
+          git add -- packages/cli/moss.sh packages/cli/internal/deploy.sh packages/cli/internal/bootstrap-remote.sh packages/cli/internal/audit-app.sh packages/cli/internal/new-operator-manifest.sh docs/cli-spec docs/cli-reference.md
           if git diff --cached --quiet; then
             echo 'Generated artifacts are already current.'
             exit 0

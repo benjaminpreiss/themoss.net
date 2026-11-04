@@ -37,25 +37,25 @@ The Git checkout and root-only selector/revision state live outside the Nix stor
 
 For every command and argument, see the [generated Markdown command reference](cli-reference.md). The equivalent [JSON command specs](cli-spec/) are committed alongside it. Keep the runbooks for **review decisions and failure recovery**—a command schema cannot establish those safeguards.
 
-The four Bash entry points (`deploy.sh`, `bootstrap-remote.sh`, `audit-app.sh`, `new-operator-manifest.sh`) are **standalone argc builds** committed in `toolkit/`. They do **not** need argc at runtime, including when the scripts are streamed to the target over SSH. Their annotated definitions live in [`toolkit/source/`](../toolkit/source/); change those, not the generated scripts. Positional commands used by existing pinned consumers remain supported. The internal SSH commands are visible in generated help/spec but must not be run by operators.
+The public `moss.sh` and the four internal scripts (`deploy.sh`, `bootstrap-remote.sh`, `audit-app.sh`, `new-operator-manifest.sh`) are **standalone argc builds** in [`packages/cli/`](../packages/cli/). They do **not** need argc at runtime, including when internal scripts are streamed to the target over SSH. Edit [`packages/cli/source/moss.sh`](../packages/cli/source/moss.sh) or [`packages/cli/internal/source/`](../packages/cli/internal/source/), never generated scripts. The legacy positional interface remains internal for pinned consumers; public operators use only `moss machine`. The internal SSH commands are not web-app or operator commands.
 
 Inside the [pinned operator shell](deployment.md#operator-environment):
 
 ```bash
-bash toolkit/deploy.sh --help
-bash toolkit/deploy.sh manifest install --help
-argc --argc-export toolkit/source/deploy.sh > /private/deploy-cli-spec.json
-# Optional: argc --argc-mangen toolkit/source/deploy.sh /private/man
-bash toolkit/regenerate-cli.sh # rebuild Bash, JSON specs, and Markdown reference
+bash packages/cli/moss.sh machine --help
+bash packages/cli/moss.sh machine plan --help
+argc --argc-export packages/cli/source/moss.sh > /private/moss-cli-spec.json
+# Optional: argc --argc-mangen packages/cli/source/moss.sh /private/man
+bash packages/cli/regenerate.sh # rebuild Bash, JSON specs, and Markdown reference
 bash tests/argc.sh
 bash tests/test.sh
 ```
 
-`--argc-export` produces JSON **from the same argc annotations as parsing and help**; [`render-cli-reference.sh`](../toolkit/render-cli-reference.sh) turns the four exported JSON trees into Markdown. Both artifacts live in this repo and are checked for drift in the GitHub **Toolkit checks** job (`tests/consumer-commands.sh` runs `tests/argc.sh` inside the pinned operator shell). Use the JSON to inspect command names and positional parameters.
+`--argc-export` produces JSON **from the same argc annotations as parsing and help**; [`render-cli-reference.sh`](../packages/cli/render-cli-reference.sh) turns the public `moss` JSON tree into Markdown. Both artifacts live in this repo and are checked for drift in the GitHub **Toolkit checks** job (`tests/consumer-commands.sh` runs `tests/argc.sh` inside the pinned operator shell). Use the JSON to inspect command names and positional parameters.
 
-**Contributors:** opt into the plain Bash pre-commit hook with `git config core.hooksPath .githooks` (Git stores this setting in the shared config of linked worktrees; enable it deliberately). The hook runs the pinned generation check and refuses to commit unstaged CLI source/generated changes. No npm or Node dependency is required. If it reports drift, use `nix develop --no-write-lock-file .#operator`, run `bash toolkit/regenerate-cli.sh`, and stage the updated scripts, JSON and Markdown.
+**Contributors:** opt into the plain Bash pre-commit hook with `git config core.hooksPath .githooks` (Git stores this setting in the shared config of linked worktrees; enable it deliberately). The hook runs the pinned generation check and refuses to commit unstaged CLI source/generated changes. No npm or Node dependency is required. If it reports drift, use `nix develop --no-write-lock-file .#operator`, run `bash packages/cli/regenerate.sh`, and stage the updated scripts, JSON and Markdown.
 
-The [regeneration workflow draft](workflow-drafts/generate-cli-docs.yml) would rebuild and commit changed standalone scripts, JSON specs and Markdown on same-repository non-`main` pushes. **It is not active yet:** our GitHub App cannot write `.github/workflows/` (the remote rejected the push and Contents API request). A maintainer with workflow-write access must move this draft to `.github/workflows/generate-cli-docs.yml`. Until then, the existing Toolkit checks job rejects stale artifacts and contributors run `bash toolkit/regenerate-cli.sh` themselves. It describes the *command interface*, not the contents of the private manifest or a proof that a command is safe: those validations remain in the toolkit's executable gates. CI checks regenerated scripts byte-for-byte against the pinned argc version. Regenerate inside the operator shell rather than using an unrelated argc release.
+The [regeneration workflow draft](workflow-drafts/generate-cli-docs.yml) would rebuild and commit changed standalone scripts, JSON specs and Markdown on same-repository non-`main` pushes. **It is not active yet:** our GitHub App cannot write `.github/workflows/` (the remote rejected the push and Contents API request). A maintainer with workflow-write access must move this draft to `.github/workflows/generate-cli-docs.yml`. Until then, the existing Toolkit checks job rejects stale artifacts and contributors run `bash packages/cli/regenerate.sh` themselves. It describes the *command interface*, not the contents of private machine configuration or a proof that a command is safe: those validations remain in the toolkit's executable gates. CI checks regenerated scripts byte-for-byte against the pinned argc version. Regenerate inside the operator shell rather than using an unrelated argc release.
 
 ## Choose your next step
 

@@ -48,7 +48,7 @@ cat >"$tmp/bin/nixos-anywhere" <<'EOF'
 echo "ERASE $*" >>"$MOCK_LOG"
 EOF
 chmod +x "$tmp/bin/"*
-cli="$root/toolkit/deploy.sh"
+cli="$root/packages/cli/internal/deploy.sh"
 bash "$cli" discover root@example /dev/vda "$tmp/record"
 bash "$cli" preflight "$tmp/record"
 for key in arch boot nic mac disk; do
@@ -72,11 +72,11 @@ printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$firs
 git -C "$tmp/repo" push -q origin HEAD:main
 # Exercise the interactive authoring flow through a synthetic terminal when available.
 printf '%s\n\n/dev/vda\n%s\n\nmain\ntest\n%s\n\n\n\n\n\n\n\n' "$tmp/record" "$tmp/repo" "$tmp/machine" | \
-  THEMOSS_TEST_INPUT=1 bash "$root/toolkit/new-operator-manifest.sh" "$tmp/authored.json" >/dev/null
+  THEMOSS_TEST_INPUT=1 bash "$root/packages/cli/internal/new-operator-manifest.sh" "$tmp/authored.json" >/dev/null
 [[ $(stat -c %a "$tmp/authored.json") == 600 ]]
 jq -e --arg rev "$first" '.disk == "/dev/vda" and .revision == $rev and .output == "test"' "$tmp/authored.json" >/dev/null
 bash "$cli" manifest plan "$tmp/authored.json" >/dev/null
-! bash "$root/toolkit/new-operator-manifest.sh" "$tmp/authored.json" </dev/null >/dev/null 2>&1
+! bash "$root/packages/cli/internal/new-operator-manifest.sh" "$tmp/authored.json" </dev/null >/dev/null 2>&1
 # Two synthetic consumer policies share the manifest schema, not application fields.
 for consumer in relay agentic; do
   manifest="$tmp/$consumer.json"
@@ -292,10 +292,67 @@ adopt >/dev/null 2>&1 && { echo 'adopt replaced conflicting revision' >&2; exit 
 ! grep -q ERASE "$tmp/log"
 # Both consumer policies parse, and the candidate relay's timer starts disabled.
 if command -v nix-instantiate >/dev/null; then
-  for file in "$root"/examples/*.nix "$root"/toolkit/update.nix; do nix-instantiate --parse "$file" >/dev/null; done
+  for file in "$root"/examples/*.nix "$root"/packages/cli/internal/update.nix; do nix-instantiate --parse "$file" >/dev/null; done
 fi
 ! grep -q 'timer = false' "$root/examples/agentic.nix"
 ! grep -q 'timer = false' "$root/examples/thepeer.nix"
-! grep -q 'update --repo' "$root/toolkit/update.nix" || { echo 'module/CLI argument mismatch' >&2; exit 1; }
+! grep -q 'update --repo' "$root/packages/cli/internal/update.nix" || { echo 'module/CLI argument mismatch' >&2; exit 1; }
+# Public CLI: the private configuration declares source/policy once; plan
+# captures live facts and evaluates before publishing. Applying repeats all
+# time-sensitive checks and never treats the plan as erase authorization.
+public_cli="$root/packages/cli/moss.sh"
+config="$tmp/public-config.json"
+plan="$tmp/public-plan.json"
+public_receipt="$tmp/public-receipt.json"
+jq -n --arg repo "$tmp/repo" --arg rev "$first" --arg machine "$tmp/machine" \
+  --arg receipt "$public_receipt" --arg remote "$tmp/public-remote" \
+  '{version:1,repo:$repo,revision:$rev,branch:"main",output:"test",machine:$machine,
+   receipt:$receipt,remoteCheckout:($remote+"/repo"),remoteMachine:($remote+"/machine"),remoteState:($remote+"/state")}' >"$config"
+chmod 600 "$config"
+: >"$tmp/log"
+bash "$public_cli" machine plan root@example --config "$config" --disk /dev/vda --output "$plan"
+[[ $(stat -c %a "$plan") == 600 ]]
+jq -e '.type == "install" and .observed.disk.path == "/dev/vda" and .machineSha256 != ""' "$plan" >/dev/null
+! grep -q ERASE "$tmp/log"
+! bash "$public_cli" machine plan root@example --config "$config" --disk /dev/sda --output "$tmp/invalid-plan" >/dev/null 2>&1
+! bash "$public_cli" machine plan root@example --config "$config" --disk /dev/vda --output "$plan" >/dev/null 2>&1
+printf 'wrong\n' | bash "$public_cli" machine apply "$plan" >/dev/null 2>&1 && { echo 'public apply bypassed confirmation' >&2; exit 1; }
+[[ ! -e $public_receipt ]] && ! grep -q ERASE "$tmp/log"
+cp "$config" "$tmp/config-copy"; printf ' \n' >>"$config"
+! bash "$public_cli" machine apply "$plan" </dev/null >/dev/null 2>&1
+mv "$tmp/config-copy" "$config"; chmod 600 "$config"
+[[ ! -e $public_receipt ]]
+printf 'ERASE /dev/vda\n' | bash "$public_cli" machine apply "$plan" >/dev/null
+[[ -f $public_receipt && $(stat -c %a "$public_receipt") == 600 ]]
+! bash "$public_cli" machine apply "$plan" </dev/null >/dev/null 2>&1
+# The post-install handoff has its own host-key trust boundary and is retryable.
+MOCK_HOST_VERIFIED=0 bash "$public_cli" machine bootstrap "$public_receipt" --config "$config" >/dev/null 2>&1 && exit 1
+MOCK_HOST_VERIFIED=1 bash "$public_cli" machine bootstrap "$public_receipt" --config "$config"
+bash "$public_cli" machine bootstrap "$public_receipt" --config "$config"
+# A separately reviewed transition changes the initial commit pin to branch
+# tracking. Planning must never silently make that policy choice itself.
+bash "$cli" transition "$public_receipt" root@example "$tmp/public-remote/repo" main "$tmp/machine" "$tmp/public-remote/machine" test "$tmp/public-remote/state" >/dev/null
+# Same plan/apply interface: an installed branch-tracking host yields an
+# update plan; its executor must never call the disk installer.
+printf 'next\n' >"$tmp/repo/next"; git -C "$tmp/repo" add next; git -C "$tmp/repo" commit -qm next
+update_rev=$(git -C "$tmp/repo" rev-parse HEAD)
+git -C "$tmp/repo" push -q origin HEAD:main
+jq --arg rev "$update_rev" '.revision = $rev' "$config" >"$tmp/new-config"
+mv "$tmp/new-config" "$config"; chmod 600 "$config"
+update_plan="$tmp/update-plan.json"
+bash "$public_cli" machine plan root@example --config "$config" --output "$update_plan"
+jq -e --arg next "$update_rev" '.type == "update" and .expected.next == $next' "$update_plan" >/dev/null
+# Tip movement after planning must not silently deploy the newer commit.
+git -C "$tmp/repo" commit --allow-empty -qm 'moved after review'
+git -C "$tmp/repo" push -q origin HEAD:main
+: >"$tmp/log"
+! bash "$public_cli" machine apply "$update_plan" >/dev/null 2>&1
+[[ $(<"$tmp/public-remote/state/revision") == "$first" ]]
+! grep -q 'switch\|ERASE' "$tmp/log"
+git -C "$tmp/repo" push -q --force origin "$update_rev":main
+bash "$public_cli" machine apply "$update_plan"
+[[ $(<"$tmp/public-remote/state/revision") == "$update_rev" ]]
+! grep -q ERASE "$tmp/log"
+! bash "$public_cli" machine apply "$update_plan" >/dev/null 2>&1
 bash "$root/tests/audit.sh"
 echo 'Bash fixture checks passed'

@@ -1,7 +1,6 @@
 {
   "name": "deploy",
   "describe": "Shared deployment toolkit; only install erases a disk.",
-  "author": null,
   "version": null,
   "aliases": [],
   "flag_options": [
@@ -58,7 +57,6 @@
     {
       "name": "discover",
       "describe": "Create a private discovery record for one whole disk",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -131,7 +129,6 @@
     {
       "name": "preflight",
       "describe": "Re-probe and compare the target with its discovery record",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -180,7 +177,6 @@
     {
       "name": "install",
       "describe": "Build and install an exact pushed revision; erases the selected disk",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -337,7 +333,6 @@
     {
       "name": "bootstrap",
       "describe": "Bootstrap the exact installed revision without erasing disks",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -446,7 +441,6 @@
     {
       "name": "adopt",
       "describe": "Adopt a verified legacy host without reinstalling",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -567,7 +561,6 @@
     {
       "name": "transition",
       "describe": "Run a reviewed non-destructive candidate transition",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -700,7 +693,6 @@
     {
       "name": "poll",
       "describe": "Poll the root-owned selector for a new revision (target-side)",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -785,7 +777,6 @@
     {
       "name": "deploy",
       "describe": "Switch to an explicitly selected revision (target-side)",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -882,7 +873,6 @@
     {
       "name": "migrate",
       "describe": "Pin an existing installed revision in root-owned state",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -943,7 +933,6 @@
     {
       "name": "manifest",
       "describe": "Operate on a private off-host JSON manifest",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -977,7 +966,6 @@
         {
           "name": "plan",
           "describe": "Review target, whole disk and exact pushed tip without installing",
-          "author": null,
           "version": null,
           "aliases": [],
           "flag_options": [
@@ -1026,7 +1014,6 @@
         {
           "name": "install",
           "describe": "Build and install from a reviewed manifest; erases the selected disk",
-          "author": null,
           "version": null,
           "aliases": [],
           "flag_options": [
@@ -1075,7 +1062,6 @@
         {
           "name": "bootstrap",
           "describe": "Resume non-destructive bootstrap from a private manifest",
-          "author": null,
           "version": null,
           "aliases": [],
           "flag_options": [
@@ -1124,7 +1110,6 @@
         {
           "name": "transition",
           "describe": "Apply a reviewed non-destructive transition",
-          "author": null,
           "version": null,
           "aliases": [],
           "flag_options": [
@@ -1174,9 +1159,404 @@
       "command_fn": null
     },
     {
+      "name": "plan-update",
+      "describe": "Internal: build and check a reviewed branch update without switching",
+      "version": null,
+      "aliases": [],
+      "flag_options": [
+        {
+          "id": "help",
+          "long_name": "--help",
+          "short_name": "-h",
+          "describe": "",
+          "flag": true,
+          "notations": [],
+          "required": false,
+          "multiple_values": false,
+          "multiple_occurs": false,
+          "num_args": [
+            0,
+            0
+          ],
+          "delimiter": null,
+          "terminated": false,
+          "prefixed": false,
+          "assigned": false,
+          "default": null,
+          "choice": null,
+          "env": null,
+          "inherited": false
+        }
+      ],
+      "positionals": [
+        {
+          "id": "repo",
+          "describe": "Target checkout",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "machine",
+          "describe": "Target private machine inputs",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "host",
+          "describe": "NixOS output",
+          "notation": "HOST",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "state",
+          "describe": "Root-only state",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "branch",
+          "describe": "Selected branch",
+          "notation": "BRANCH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "rev",
+          "describe": "Exact candidate tip",
+          "notation": "REV",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "origin",
+          "describe": "Reviewed Git origin",
+          "notation": "URL",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        }
+      ],
+      "envs": [],
+      "subcommands": [],
+      "command_fn": "plan-update"
+    },
+    {
+      "name": "apply-reviewed",
+      "describe": "Internal: switch only the exact reviewed branch update",
+      "version": null,
+      "aliases": [],
+      "flag_options": [
+        {
+          "id": "help",
+          "long_name": "--help",
+          "short_name": "-h",
+          "describe": "",
+          "flag": true,
+          "notations": [],
+          "required": false,
+          "multiple_values": false,
+          "multiple_occurs": false,
+          "num_args": [
+            0,
+            0
+          ],
+          "delimiter": null,
+          "terminated": false,
+          "prefixed": false,
+          "assigned": false,
+          "default": null,
+          "choice": null,
+          "env": null,
+          "inherited": false
+        }
+      ],
+      "positionals": [
+        {
+          "id": "repo",
+          "describe": "Target checkout",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "machine",
+          "describe": "Target private machine inputs",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "host",
+          "describe": "NixOS output",
+          "notation": "HOST",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "state",
+          "describe": "Root-only state",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "selected",
+          "describe": "Reviewed branch selector",
+          "notation": "REF",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "current",
+          "describe": "Reviewed installed revision",
+          "notation": "REV",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "next",
+          "describe": "Reviewed candidate revision",
+          "notation": "REV",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "sha",
+          "describe": "Reviewed private machine input",
+          "notation": "SHA",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "origin",
+          "describe": "Reviewed Git origin",
+          "notation": "URL",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        }
+      ],
+      "envs": [],
+      "subcommands": [],
+      "command_fn": "apply-reviewed"
+    },
+    {
+      "name": "plan-build",
+      "describe": "Internal: build and check a fresh install plan without erasing",
+      "version": null,
+      "aliases": [],
+      "flag_options": [
+        {
+          "id": "help",
+          "long_name": "--help",
+          "short_name": "-h",
+          "describe": "",
+          "flag": true,
+          "notations": [],
+          "required": false,
+          "multiple_values": false,
+          "multiple_occurs": false,
+          "num_args": [
+            0,
+            0
+          ],
+          "delimiter": null,
+          "terminated": false,
+          "prefixed": false,
+          "assigned": false,
+          "default": null,
+          "choice": null,
+          "env": null,
+          "inherited": false
+        }
+      ],
+      "positionals": [
+        {
+          "id": "record",
+          "describe": "Private observed facts",
+          "notation": "FILE",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "repo",
+          "describe": "Clean consumer checkout",
+          "notation": "DIR",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "rev",
+          "describe": "Exact pushed revision",
+          "notation": "REV",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "machine",
+          "describe": "Private machine inputs",
+          "notation": "DIR",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "host",
+          "describe": "NixOS output",
+          "notation": "HOST",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "branch",
+          "describe": "Pushed branch",
+          "notation": "BRANCH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "generator",
+          "describe": "Report generator or -",
+          "notation": "FILE",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "pre_erase",
+          "describe": "Evaluated check or -",
+          "notation": "FILE",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        }
+      ],
+      "envs": [],
+      "subcommands": [],
+      "command_fn": "plan-build"
+    },
+    {
       "name": "prepare-transition",
       "describe": "Internal: prepare a reviewed transition upload (target-side)",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -1273,7 +1653,6 @@
     {
       "name": "apply-transition",
       "describe": "Internal: apply a reviewed candidate transition (target-side)",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [

@@ -39,7 +39,7 @@ rev=$(git -C "$tmp/repo" rev-parse HEAD)
 git init -q --bare "$tmp/origin.git"
 git -C "$tmp/repo" remote add origin "$tmp/origin.git"
 git -C "$tmp/repo" push -q origin HEAD:main
-cli="$root/toolkit/deploy.sh"
+cli="$root/packages/cli/internal/deploy.sh"
 bash "$cli" discover root@example /dev/vda "$tmp/record"
 bash "$cli" preflight "$tmp/record"
 # Build and validate before any disk call; denial must leave no receipt.

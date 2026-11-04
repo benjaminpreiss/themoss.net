@@ -6,7 +6,7 @@ root=$(cd "$(dirname "$0")/.." && pwd -P)
 tmp=$(mktemp -d "$root/.consumer-test-tmp.XXXXXXXX")
 trap 'rm -rf "$tmp"' EXIT
 cp "$root/tests/fixtures/consumer/flake.nix" "$tmp/flake.nix"
-cp "$root/toolkit/update.nix" "$root/toolkit/deploy.sh" "$tmp/"
+cp "$root/packages/cli/internal/update.nix" "$root/packages/cli/internal/deploy.sh" "$tmp/"
 # An independent repo keeps Nix from treating this disposable flake as an
 # untracked path in the checkout under test.
 git -C "$tmp" init -q
@@ -21,7 +21,7 @@ git -C "$tmp" add flake.nix update.nix deploy.sh
   [[ $(nix eval --raw .#nixosConfigurations.agentic.config.systemd.services.themoss-update.serviceConfig.ExecStart) == *' poll /root/agentic '* ]]
 )
 # CI exercises the pinned Linux operator environment without a target or disk.
-nix develop --no-write-lock-file "$root#operator" --command bash -n "$root/toolkit/deploy.sh" "$root/toolkit/bootstrap-remote.sh"
+nix develop --no-write-lock-file "$root#operator" --command bash -n "$root/packages/cli/internal/deploy.sh" "$root/packages/cli/internal/bootstrap-remote.sh"
 # CI verifies generated standalone scripts, JSON specs and Markdown in this step.
 nix develop --no-write-lock-file "$root#operator" --command bash "$root/tests/argc.sh"
 nix develop --no-write-lock-file "$root#operator" --command bash "$root/tests/operator-smoke.sh"

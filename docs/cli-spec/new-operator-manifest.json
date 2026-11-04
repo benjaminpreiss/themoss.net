@@ -1,7 +1,6 @@
 {
   "name": "new-operator-manifest",
   "describe": "Interactively author a private off-host operator manifest; never installs.",
-  "author": null,
   "version": null,
   "aliases": [],
   "flag_options": [

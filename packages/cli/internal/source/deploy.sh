@@ -206,6 +206,86 @@ case $op in
       esac
     fi
     ;;
+  plan-update)
+    # Target-side planning: only an already installed, branch-tracking host.
+    [[ $# == 7 ]] || usage
+    repo=$1 machine=$2 host=$3 state=$4 branch=$5 expected=$6 expected_origin=$7
+    [[ -d $repo/.git && ! -L $repo && -d $machine && ! -L $machine && $host =~ ^[a-zA-Z0-9_-]+$ && $expected =~ ^[0-9a-f]{40}$ ]] || fail 'invalid update inputs'
+    valid_ref "branch:$branch" || fail 'invalid update branch'
+    [[ -n $expected_origin && $(git -C "$repo" remote get-url origin) == "$expected_origin" ]] || fail 'target Git origin changed'
+    locked_state "$state"
+    selector "$state"
+    [[ $selected == "branch:$branch" ]] || fail 'selected branch differs; transition requires separate operator review'
+    next=$(branch_tip "$repo" "$branch")
+    [[ $next == "$expected" ]] || fail 'candidate differs from pushed branch tip'
+    git -C "$repo" merge-base --is-ancestor "$current" "$next" || fail 'diverged history; use reviewed transition'
+    [[ -f $machine/machine.nix && ! -L $machine/machine.nix && $(stat -c %a "$machine/machine.nix") == 600 ]] || fail 'unsafe private machine input'
+    sha=$(sha256sum "$machine/machine.nix" | cut -d ' ' -f1)
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    stage "$repo" "$next" "$machine" "$tmp"
+    build "$tmp" "$host"
+    verify_tip "$repo" "$branch" "$next"
+    jq -n --arg current "$current" --arg selected "$selected" --arg next "$next" --arg sha "$sha" \
+      '{current:$current,selected:$selected,next:$next,machineSha256:$sha}'
+    ;;
+  apply-reviewed)
+    # The reviewed revision and selector are mandatory: never follow a newer
+    # tip than the one shown in the plan or silently reinterpret its action.
+    [[ $# == 9 ]] || usage
+    repo=$1 machine=$2 host=$3 state=$4 requested=$5 expected_current=$6 expected_next=$7 expected_sha=$8 expected_origin=$9
+    [[ -d $repo/.git && ! -L $repo && -d $machine && ! -L $machine && $host =~ ^[a-zA-Z0-9_-]+$ ]] || fail 'invalid target inputs'
+    valid_ref "$requested" || fail 'invalid selected reference'
+    [[ -n $expected_origin && $(git -C "$repo" remote get-url origin) == "$expected_origin" ]] || fail 'target Git origin changed'
+    [[ $requested == branch:* && $expected_current =~ ^[0-9a-f]{40}$ && $expected_next =~ ^[0-9a-f]{40}$ && $expected_sha =~ ^[0-9a-f]{64}$ ]] || fail 'invalid reviewed update'
+    locked_state "$state"
+    selector "$state"
+    [[ $current == "$expected_current" && $selected == "$requested" ]] || fail 'installed baseline or selector changed; make a new plan'
+    [[ -f $machine/machine.nix && ! -L $machine/machine.nix && $(sha256sum "$machine/machine.nix" | cut -d ' ' -f1) == "$expected_sha" ]] || fail 'private machine input changed'
+    branch=${requested#branch:}
+    next=$(branch_tip "$repo" "$branch")
+    [[ $next == "$expected_next" ]] || fail 'pushed tip changed; make a new plan'
+    git -C "$repo" merge-base --is-ancestor "$current" "$next" || fail 'diverged history; use reviewed transition'
+    [[ $next != "$current" ]] || { echo "Already at $current"; exit 0; }
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    stage "$repo" "$next" "$machine" "$tmp"
+    build "$tmp" "$host"
+    verify_tip "$repo" "$branch" "$next"
+    record_switch "$state" "$requested" "$next" "$tmp" "$host"
+    echo "SWITCH OK $current -> $next ($requested)"
+    ;;
+  plan-build)
+    # Internal non-destructive evaluated check. The operator CLI owns the
+    # reviewed plan; the legacy install path repeats these gates before erase.
+    [[ $# == 8 ]] || usage
+    record=$1 repo=$2 rev=$3 machine=$4 host=$5 branch=$6 generator=$7 pre_erase=$8
+    [[ $host =~ ^[a-zA-Z0-9_-]+$ && $rev =~ ^[0-9a-f]{40}$ ]] || fail 'invalid output or revision'
+    valid_ref "branch:$branch" || fail 'invalid branch'
+    [[ -z $(git -C "$repo" status --porcelain) ]] || fail 'commit/review local changes before planning'
+    [[ $(git -C "$repo" cat-file -t "$rev") == commit ]] || fail 'missing pinned commit'
+    verify_tip "$repo" "$branch" "$rev"
+    check "$record"
+    for hook in "$generator" "$pre_erase"; do
+      [[ $hook == - || ( -f $hook && ! -L $hook && -x $hook ) ]] || fail 'hook must be an executable regular file'
+    done
+    if [[ $generator != - ]]; then
+      [[ ! -e $machine/facter.json && ! -L $machine/facter.json ]] || fail 'refusing to replace hardware report'
+      report=$(mktemp "$machine/.facter.XXXXXXXX")
+      rm -- "$report"
+      trap 'rm -f -- "$report"' EXIT
+      "$generator" "$(jq -r .target "$record")" "$report"
+      [[ -f $report && ! -L $report ]] || fail 'generator did not produce a regular report'
+      jq -e . "$report" >/dev/null || fail 'invalid hardware report'
+      chmod 600 "$report"
+      [[ ! -e $machine/facter.json && ! -L $machine/facter.json ]] || fail 'hardware report appeared during generation'
+      mv -n -- "$report" "$machine/facter.json"
+    fi
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    stage "$repo" "$rev" "$machine" "$tmp"
+    build "$tmp" "$host"
+    if [[ $pre_erase != - ]]; then "$pre_erase" "$tmp" "$host" "$record"; fi
+    verify_tip "$repo" "$branch" "$rev"
+    echo 'Evaluated build and consumer pre-erase check passed; review the reported target and disk before install.'
+    ;;
   discover)
     [[ $# == 3 ]] || usage
     target=$1 disk=$2 record=$3
@@ -554,6 +634,39 @@ manifest::bootstrap() { _legacy manifest bootstrap "$@"; }
 # @cmd Apply a reviewed non-destructive transition
 # @arg file! <FILE> Mode-600 private manifest
 manifest::transition() { _legacy manifest transition "$@"; }
+
+# @cmd Internal: build and check a reviewed branch update without switching
+# @arg repo! <PATH> Target checkout
+# @arg machine! <PATH> Target private machine inputs
+# @arg host! <HOST> NixOS output
+# @arg state! <PATH> Root-only state
+# @arg branch! <BRANCH> Selected branch
+# @arg rev! <REV> Exact candidate tip
+# @arg origin! <URL> Reviewed Git origin
+plan-update() { _legacy plan-update "$@"; }
+
+# @cmd Internal: switch only the exact reviewed branch update
+# @arg repo! <PATH> Target checkout
+# @arg machine! <PATH> Target private machine inputs
+# @arg host! <HOST> NixOS output
+# @arg state! <PATH> Root-only state
+# @arg selected! <REF> Reviewed branch selector
+# @arg current! <REV> Reviewed installed revision
+# @arg next! <REV> Reviewed candidate revision
+# @arg sha! <SHA> Reviewed private machine input
+# @arg origin! <URL> Reviewed Git origin
+apply-reviewed() { _legacy apply-reviewed "$@"; }
+
+# @cmd Internal: build and check a fresh install plan without erasing
+# @arg record! <FILE> Private observed facts
+# @arg repo! <DIR> Clean consumer checkout
+# @arg rev! <REV> Exact pushed revision
+# @arg machine! <DIR> Private machine inputs
+# @arg host! <HOST> NixOS output
+# @arg branch! <BRANCH> Pushed branch
+# @arg generator! <FILE> Report generator or -
+# @arg pre_erase! <FILE> Evaluated check or -
+plan-build() { _legacy plan-build "$@"; }
 
 # Internal SSH protocol. Exposed to argc for strict parsing, not for operators.
 # @cmd Internal: prepare a reviewed transition upload (target-side)
