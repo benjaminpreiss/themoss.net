@@ -28,7 +28,7 @@ moss machine plan root@HOST --config /private/machine.json \
 moss machine apply /private/update-plan.json
 ```
 
-`moss` is the public entry point (generated executable `packages/cli/moss.sh`). The operator's mode-600 JSON declares pinned source and policy paths, not a second Nix machine definition; it does not choose a physical disk. `plan` captures observations and creates a typed, mode-600 plan. A complete evaluated storage diff requires consumer-provided checks; the CLI does not infer safe disk layout from generic Nix data. Applying an install plan *always* requires a new typed disk confirmation and re-probe. A failed or uncertain switch blocks further automatic updates until inspection.
+`moss` is the public entry point (generated executable `packages/cli/bin/moss`). The operator's mode-600 JSON declares pinned source and policy paths, not a second Nix machine definition; it does not choose a physical disk. `plan` captures observations and creates a typed, mode-600 plan. A complete evaluated storage diff requires consumer-provided checks; the CLI does not infer safe disk layout from generic Nix data. Applying an install plan *always* requires a new typed disk confirmation and re-probe. A failed or uncertain switch blocks further automatic updates until inspection.
 
 ## Internal protocol and future work
 
