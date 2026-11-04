@@ -59,7 +59,7 @@ jobs:
           trap 'rm -f "$key"' EXIT
           chmod 600 "$key"
           printf '%s' "$APP_PRIVATE_KEY" > "$key"
-          bash .themoss-audit/packages/cli/internal/audit-app.sh "$APP_ID" "$key" "$APP_POLICY_FILE" "$GITHUB_REPOSITORY"
+          bash .themoss-audit/packages/github-app-audit/bin/audit-app.sh "$APP_ID" "$key" "$APP_POLICY_FILE" "$GITHUB_REPOSITORY"
       - uses: actions/create-github-app-token@v2
         id: token
         with:
