@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Render the argc-exported JSON command trees; do not hand-edit the result.
+# build.sh exports JSON specs from argc-annotated shell sources.
+# Render those specs as the Markdown CLI reference; do not hand-edit the result.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../../.." && pwd -P)
 specs=${1:-$root/docs/cli-spec}

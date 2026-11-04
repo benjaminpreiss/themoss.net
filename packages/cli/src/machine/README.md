@@ -6,28 +6,19 @@ Use the public `moss machine` command **on your operator computer** to plan, app
 
 | If you want to… | Start here |
 | --- | --- |
-| Set up the command | [Install `moss` on your computer](#install-moss-on-your-operator-computer) |
+| Set up the command | [Install `moss` on your computer](../../README.md#install-moss-on-your-operator-computer) |
 | Install a new host | [Plan → apply → bootstrap](#install-a-new-machine) |
 | Update an installed host | [Review a same-branch update](#update-an-existing-machine) |
 | Investigate a failure | [Recovery checklist](#if-an-update-fails) |
 
-## Install `moss` on your operator computer
+## Operator environment
 
-Review and pin a **full 40-character toolkit commit SHA**. Set `MOSS_REV`, then run the following single-line install command. It downloads that revision's archive, extracts the *entire* CLI `bin/` tree under `~/.local/share/moss/`, and writes a launcher to `~/.local/bin/moss`:
-
-```bash
-MOSS_REV=REPLACE_WITH_REVIEWED_40_CHARACTER_SHA
-mkdir -p "$HOME/.local/share/moss/$MOSS_REV" "$HOME/.local/bin" && curl -fLsS "https://github.com/benjaminpreiss/themoss.net/archive/$MOSS_REV.tar.gz" -o "$HOME/.local/share/moss/$MOSS_REV.tar.gz" && tar -xzf "$HOME/.local/share/moss/$MOSS_REV.tar.gz" -C "$HOME/.local/share/moss/$MOSS_REV" --strip-components=3 "themoss.net-$MOSS_REV/packages/cli/bin" && printf '#!/bin/sh\nexec "%s/bin/moss" "$@"\n' "$HOME/.local/share/moss/$MOSS_REV" >"$HOME/.local/bin/moss" && chmod 755 "$HOME/.local/bin/moss"
-```
-
-Ensure `~/.local/bin` is on `PATH`, then try `moss machine plan --help`. **Do not copy or symlink only `moss`:** it needs adjacent `bin/machine/deploy.sh`, and bootstrap also needs `bin/machine/bootstrap/remote.sh`. The download does *not* execute the downloaded code, but using the CLI does. Review the pinned commit before running a command that can erase a disk. Keep private inputs, plans and receipts **off the target**.
-
-### Runtime tools
+[Install the CLI on your computer](../../README.md#install-moss-on-your-operator-computer) before following these steps. Keep private configuration, plans and receipts **off the target**.
 
 The CLI also needs `nix`, `nixos-anywhere`, `jq`, SSH and GNU tools. On Linux or macOS, install Nix with flakes enabled and enter the pinned **operator** shell (it does not need argc):
 
 - **Using a reviewed checkout:** verify its committed `flake.lock`, then run `nix develop --no-write-lock-file .#operator`. In that checkout, `bash tests/operator-smoke.sh` exercises SSH and installer mocks.
-- **Using the archive above:** run `nix develop "github:benjaminpreiss/themoss.net/$MOSS_REV#operator"` for tools from the same toolkit revision. The smoke test is only available in a checkout.
+- **Using the archive installer:** run `nix develop "github:benjaminpreiss/themoss.net/$MOSS_REV#operator"` for tools from the same toolkit revision. The smoke test is only available in a checkout.
 
 > 🧪 Linux CI checks the pinned shell, but native macOS still needs operator validation. On macOS, configure a **Linux Nix builder** for the NixOS pre-build, or use a Linux VM; macOS cannot build a Linux closure locally. Target-side updates run on Linux only.
 
