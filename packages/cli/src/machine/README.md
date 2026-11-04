@@ -1,5 +1,5 @@
 # Machine implementation source
 
-`deploy.sh` owns safe install/update execution and private SSH operations; `bootstrap-remote.sh` runs the root-only first-boot handoff. `update.nix` is the NixOS scheduled updater module and refers to the generated `bin/machine/deploy.sh`. `new-operator-manifest.sh` is retained only for the older, pinned manifest workflow; it is not part of the public `moss` command tree.
+The command folders own the implementation: `plan/` captures observations and builds proposals; `apply/` runs validated effects; `bootstrap/` performs the operator handoff and its separate root-only `remote.sh`; `update/`, `transition/` and `adopt/` hold target and migration logic. Common probe/staging/selector gates and the argc dispatch live in `deploy.sh`. Its `# @include` markers assemble these command bodies into one standalone `bin/machine/deploy.sh` before argc builds it, because the target receives only that script over SSH. No runtime sourcing of project files on the target is required.
 
-Edit these sources, then regenerate the standalone scripts. `moss` is the only public operator interface; do not expose private SSH commands through the web app.
+`update.nix` is the scheduled updater module and refers to the generated deploy script. No legacy manifest author or positional operator compatibility layer is shipped. `plan/inputs.sh` validates ephemeral data created by the public planner; it is not an operator configuration format. Edit the sources and regenerate; do not expose private SSH commands through the web app.

@@ -1,5 +1,5 @@
 {
-  "name": "bootstrap-remote",
+  "name": "remote",
   "describe": "Internal root-only bootstrap protocol. Never installs disks.",
   "version": null,
   "aliases": [],

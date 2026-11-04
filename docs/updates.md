@@ -24,7 +24,7 @@ With an existing install receipt and no `--disk`, `plan` observes root-owned sel
 
 The scheduled timer uses the internal safe update implementation without requiring an off-host operator plan. It never runs Disko. A public transition or recovery plan is **not implemented**.
 
-## Internal selection and migration interface
+## Internal target-side selection protocol
 
 The following retained commands are for pinned consumers and target-side policy maintenance, **not** the public operator CLI. Run them as root on the target, using its root-owned consumer checkout and private machine directory:
 
@@ -55,22 +55,6 @@ bash packages/cli/bin/machine/deploy.sh transition INSTALL_RECEIPT root@HOST REM
 ```
 
 Transition verifies the install receipt against target state, builds the proposed branch tip with the reviewed machine file, rechecks the tip and switches **without Disko**. Only after a successful switch does it save the new machine file, selector and revision. A receipt-bound transition cannot be repeated after its baseline changes; a later rebaseline needs another reviewed procedure.
-
-## Bring an existing host forward
-
-> 🛑 **Do not enable the new timer on a legacy host yet.** A host with only `STATE_DIR/revision` fails closed; merging this toolkit PR does not change a live machine.
-
-1. Stop the old updater. Through the console, confirm the **revision actually installed** and compare it with `STATE_DIR/revision`.
-2. Update the consumer's pinned toolkit and NixOS module to use `poll`; remove the old `branch` and `timer` options.
-3. As root, pin the verified revision:
-
-   ```bash
-   bash packages/cli/bin/machine/deploy.sh migrate STATE_DIR commit:ACTUALLY_INSTALLED_FULL_SHA
-   ```
-
-4. Enable the timer. It now fires harmlessly in commit mode. Select a branch with `deploy` or a reviewed transition **only when ready**.
-
-Migration accepts only the revision already recorded. If that differs from the running machine, **stop and investigate** rather than changing state by hand.
 
 ## If an update fails
 

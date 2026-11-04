@@ -70,40 +70,32 @@ git -C "$tmp/repo" remote add origin "$tmp/origin.git"
 receipt="$tmp/install-receipt.json"
 printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/machine" test main "$receipt" >/dev/null 2>&1 && exit 1
 git -C "$tmp/repo" push -q origin HEAD:main
-# Exercise the interactive authoring flow through a synthetic terminal when available.
-printf '%s\n\n/dev/vda\n%s\n\nmain\ntest\n%s\n\n\n\n\n\n\n\n' "$tmp/record" "$tmp/repo" "$tmp/machine" | \
-  THEMOSS_TEST_INPUT=1 bash "$root/packages/cli/bin/machine/new-operator-manifest.sh" "$tmp/authored.json" >/dev/null
-[[ $(stat -c %a "$tmp/authored.json") == 600 ]]
-jq -e --arg rev "$first" '.disk == "/dev/vda" and .revision == $rev and .output == "test"' "$tmp/authored.json" >/dev/null
-bash "$cli" manifest plan "$tmp/authored.json" >/dev/null
-! bash "$root/packages/cli/bin/machine/new-operator-manifest.sh" "$tmp/authored.json" </dev/null >/dev/null 2>&1
-# Two synthetic consumer policies share the manifest schema, not application fields.
+# Two synthetic consumers exercise the shared private install-input check;
+# there is no public manifest authoring or compatibility command.
 for consumer in relay agentic; do
-  manifest="$tmp/$consumer.json"
+  inputs="$tmp/$consumer.json"
   jq -n --arg target root@example --arg disk /dev/vda --arg record "$tmp/record" \
     --arg repo "$tmp/repo" --arg revision "$first" --arg machine "$tmp/machine" \
     --arg receipt "$tmp/$consumer-receipt" --arg base "$tmp/$consumer-remote" \
     '{version:1,target:$target,disk:$disk,record:$record,repo:$repo,revision:$revision,
       branch:"main",output:"test",machine:$machine,receipt:$receipt,
-      remoteCheckout:($base+"/repo"),remoteMachine:($base+"/machine"),remoteState:($base+"/state")}' >"$manifest"
-  chmod 600 "$manifest"
-  bash "$cli" manifest plan "$manifest" | grep -q 'pushed revision='
-  jq '.disk = "/dev/sda"' "$manifest" >"$tmp/bad.json"; chmod 600 "$tmp/bad.json"
-  ! bash "$cli" manifest install "$tmp/bad.json" </dev/null >/dev/null 2>&1
-  jq '.target = "root@other"' "$manifest" >"$tmp/bad.json"
-  ! bash "$cli" manifest install "$tmp/bad.json" </dev/null >/dev/null 2>&1
-  jq '.remoteState = "/tmp/../oops"' "$manifest" >"$tmp/bad.json"
-  ! bash "$cli" manifest install "$tmp/bad.json" </dev/null >/dev/null 2>&1
-  printf 'no\n' | bash "$cli" manifest install "$manifest" >/dev/null 2>&1 && exit 1
-  printf 'ERASE /dev/vda\n' | bash "$cli" manifest install "$manifest"
+      remoteCheckout:($base+"/repo"),remoteMachine:($base+"/machine"),remoteState:($base+"/state")}' >"$inputs"
+  chmod 600 "$inputs"
+  bash "$cli" inputs check "$inputs" | grep -q 'pushed revision='
+  jq '.disk = "/dev/sda"' "$inputs" >"$tmp/bad.json"; chmod 600 "$tmp/bad.json"
+  ! bash "$cli" inputs apply "$tmp/bad.json" </dev/null >/dev/null 2>&1
+  jq '.target = "root@other"' "$inputs" >"$tmp/bad.json"
+  ! bash "$cli" inputs apply "$tmp/bad.json" </dev/null >/dev/null 2>&1
+  jq '.remoteState = "/tmp/../oops"' "$inputs" >"$tmp/bad.json"
+  ! bash "$cli" inputs apply "$tmp/bad.json" </dev/null >/dev/null 2>&1
+  printf 'no\n' | bash "$cli" inputs apply "$inputs" >/dev/null 2>&1 && exit 1
+  printf 'ERASE /dev/vda\n' | bash "$cli" inputs apply "$inputs"
   export MOCK_UPLOAD_FAIL=1
-  ! bash "$cli" manifest bootstrap "$manifest" >/dev/null 2>&1
+  ! bash "$cli" bootstrap "$tmp/$consumer-receipt" "$tmp/repo" "$tmp/machine" "$tmp/$consumer-remote/repo" "$tmp/$consumer-remote/machine" "$tmp/$consumer-remote/state" >/dev/null 2>&1
   [[ ! -e $tmp/$consumer-remote/state/revision ]]
   export MOCK_UPLOAD_FAIL=0
-  bash "$cli" manifest bootstrap "$manifest"
-  bash "$cli" manifest bootstrap "$manifest"
-  jq '.target = "root@other"' "$manifest" >"$tmp/bad.json"
-  ! bash "$cli" manifest bootstrap "$tmp/bad.json" >/dev/null 2>&1
+  bash "$cli" bootstrap "$tmp/$consumer-receipt" "$tmp/repo" "$tmp/machine" "$tmp/$consumer-remote/repo" "$tmp/$consumer-remote/machine" "$tmp/$consumer-remote/state"
+  bash "$cli" bootstrap "$tmp/$consumer-receipt" "$tmp/repo" "$tmp/machine" "$tmp/$consumer-remote/repo" "$tmp/$consumer-remote/machine" "$tmp/$consumer-remote/state"
 done
 printf 'no\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/machine" test main "$receipt" > /dev/null 2>&1 && { echo 'confirmation bypass' >&2; exit 1; }
 [[ ! -e $receipt ]]
@@ -257,37 +249,37 @@ printf 'other branch\n' >"$tmp/repo/version"; git -C "$tmp/repo" add version; gi
 git -C "$tmp/repo" push -q --force origin HEAD:main
 bash "$cli" poll "$tmp/repo" "$tmp/machine" test "$tmp/state" >/dev/null 2>&1 && { echo 'divergence passed' >&2; exit 1; }
 [[ $(<"$tmp/state/revision") == "$second" ]]
-# Legacy adoption: verified closure and private hashes, no install receipt.
+# Existing-host adoption: verified closure and private hashes, no install receipt.
 # An incomplete upload must not authorize polling (no revision file).
 jq -n --arg target root@example --arg rev "$first" --arg branch main --arg url "$tmp/origin.git" --arg sha "$(sha256sum "$tmp/machine/machine.nix" | cut -d ' ' -f1)" \
   '{target:$target,revision:$rev,branch:$branch,origin:$url,machineSha256:$sha,facterSha256:"",verifiedBy:"operator via console",runningSystem:"/nix/store/synthetic-baseline"}' >"$tmp/evidence"
 chmod 600 "$tmp/evidence"
-adopt() { bash "$cli" adopt "$tmp/evidence" "$tmp/repo" "$tmp/machine" test "$tmp/legacy/repo" "$tmp/legacy/machine" "$tmp/legacy/state"; }
+adopt() { bash "$cli" adopt "$tmp/evidence" "$tmp/repo" "$tmp/machine" test "$tmp/existing/repo" "$tmp/existing/machine" "$tmp/existing/state"; }
 MOCK_RUNNING_SYSTEM=/nix/store/changed adopt >/dev/null 2>&1 && { echo 'adopted wrong running system' >&2; exit 1; }
-[[ ! -e $tmp/legacy/state/revision ]]
+[[ ! -e $tmp/existing/state/revision ]]
 MOCK_UPLOAD_FAIL=1 adopt >/dev/null 2>&1 && { echo 'adopted incomplete upload' >&2; exit 1; }
-[[ ! -e $tmp/legacy/state/revision ]]
-bash "$cli" poll "$tmp/repo" "$tmp/machine" test "$tmp/legacy/state" >/dev/null 2>&1 && { echo 'poll accepted incomplete adoption' >&2; exit 1; }
+[[ ! -e $tmp/existing/state/revision ]]
+bash "$cli" poll "$tmp/repo" "$tmp/machine" test "$tmp/existing/state" >/dev/null 2>&1 && { echo 'poll accepted incomplete adoption' >&2; exit 1; }
 # The original commit is still reachable in the test origin's branch only if
-# restored; do not claim a rewritten branch is a verified legacy baseline.
+# restored; do not claim a rewritten branch is a verified existing baseline.
 git -C "$tmp/repo" push -q --force origin "$first":main
 adopt
-[[ $(<"$tmp/legacy/state/revision") == "$first" ]]
-[[ $(<"$tmp/legacy/state/selector") == "commit:$first" ]]
+[[ $(<"$tmp/existing/state/revision") == "$first" ]]
+[[ $(<"$tmp/existing/state/selector") == "commit:$first" ]]
 : >"$tmp/log"
-bash "$cli" poll "$tmp/legacy/repo" "$tmp/legacy/machine" test "$tmp/legacy/state"
+bash "$cli" poll "$tmp/existing/repo" "$tmp/existing/machine" test "$tmp/existing/state"
 [[ ! -s $tmp/log ]]
 adopt # retry
-printf 'unrelated\n' >"$tmp/legacy/machine/facter.json"
+printf 'unrelated\n' >"$tmp/existing/machine/facter.json"
 adopt >/dev/null 2>&1 && { echo 'adopt kept unexpected report' >&2; exit 1; }
-rm "$tmp/legacy/machine/facter.json"
-printf 'wrong\n' >"$tmp/legacy/machine/machine.nix"
+rm "$tmp/existing/machine/facter.json"
+printf 'wrong\n' >"$tmp/existing/machine/machine.nix"
 adopt >/dev/null 2>&1 && { echo 'adopt overwrote original facts' >&2; exit 1; }
-printf 'candidate\n' >"$tmp/legacy/machine/machine.nix"
+printf 'candidate\n' >"$tmp/existing/machine/machine.nix"
 printf 'wrong\n' >"$tmp/machine/machine.nix"
 adopt >/dev/null 2>&1 && { echo 'adopt accepted changed evidence' >&2; exit 1; }
 printf 'candidate\n' >"$tmp/machine/machine.nix"
-printf '%040d\n' 0 >"$tmp/legacy/state/revision"
+printf '%040d\n' 0 >"$tmp/existing/state/revision"
 adopt >/dev/null 2>&1 && { echo 'adopt replaced conflicting revision' >&2; exit 1; }
 ! grep -q ERASE "$tmp/log"
 # Both consumer policies parse, and the candidate relay's timer starts disabled.

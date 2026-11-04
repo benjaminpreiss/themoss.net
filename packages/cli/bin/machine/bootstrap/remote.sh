@@ -133,7 +133,7 @@ _argc_usage() {
     cat <<-'EOF'
 Internal root-only bootstrap protocol. Never installs disks.
 
-USAGE: bootstrap-remote <COMMAND>
+USAGE: remote <COMMAND>
 
 COMMANDS:
   prepare  Prepare a retryable incoming upload (internal, target-side)
@@ -143,7 +143,7 @@ EOF
 }
 
 _argc_version() {
-    echo bootstrap-remote 0.0.0
+    echo remote 0.0.0
     exit
 }
 
@@ -194,7 +194,7 @@ _argc_parse() {
             esac
             ;;
         *)
-            _argc_die "error: \`bootstrap-remote\` requires a subcommand but one was not provided"$'\n'"  [subcommands: $_argc_subcmds]"
+            _argc_die "error: \`remote\` requires a subcommand but one was not provided"$'\n'"  [subcommands: $_argc_subcmds]"
             ;;
         esac
     done
@@ -209,7 +209,7 @@ _argc_usage_prepare() {
     cat <<-'EOF'
 Prepare a retryable incoming upload (internal, target-side)
 
-USAGE: bootstrap-remote prepare <URL> <REV> <PATH> <PATH> <PATH> <BRANCH>
+USAGE: remote prepare <URL> <REV> <PATH> <PATH> <PATH> <BRANCH>
 
 ARGS:
   <URL>     Consumer Git origin
@@ -296,7 +296,7 @@ _argc_usage_finish() {
     cat <<-'EOF'
 Verify and commit a completed upload (internal, target-side)
 
-USAGE: bootstrap-remote finish <URL> <REV> <PATH> <PATH> <PATH> <BRANCH>
+USAGE: remote finish <URL> <REV> <PATH> <PATH> <PATH> <BRANCH>
 
 ARGS:
   <URL>     Consumer Git origin

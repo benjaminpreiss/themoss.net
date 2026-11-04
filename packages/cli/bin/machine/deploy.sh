@@ -2,16 +2,15 @@
 # Shared deployment mechanics. Consumer owns the flake, private machine module,
 # disk layout, branch policy and update cadence. Requires Bash, jq, git, Nix.
 #
-# Operator flow: discover -> preflight -> install -> verify NEW SSH host key ->
-# bootstrap -> validate host -> optionally transition to a reviewed branch.
-# Only install calls nixos-anywhere. Update and transition never partition disks.
-# @describe Shared deployment toolkit; only install erases a disk.
+# Private machine implementation for moss machine plan/apply/bootstrap and
+# target-side polling. Only install calls nixos-anywhere; updates never do.
+# @describe Internal machine protocol; use moss machine for operator commands.
 set -euo pipefail
 export LC_ALL=C
 umask 077
 fail() { echo "themoss: $*" >&2; exit 1; }
-# argc declarations below are the command contract. Keep the positional
-# implementation gates below for existing pinned consumers and remote calls.
+# argc declarations below strictly parse private and target-side calls.
+# Public operators never invoke this implementation entry point directly.
 usage() { fail 'invalid arguments; run deploy.sh --help'; }
 
 probe() {
@@ -97,7 +96,7 @@ locked_state() {
   [[ $current =~ ^[0-9a-f]{40}$ ]] || fail 'invalid known-good revision'
 }
 selector() {
-  [[ -f $1/selector && ! -L $1/selector && $(stat -c %a "$1/selector") == 600 ]] || fail 'missing root-only selector; migrate explicitly'
+  [[ -f $1/selector && ! -L $1/selector && $(stat -c %a "$1/selector") == 600 ]] || fail 'missing root-only selector; bootstrap or adopt only after review'
   [[ $(stat -c %u "$1/selector") == 0 || ${THEMOSS_TEST_ROOT:-} == 1 ]] || fail 'selector must be root-owned'
   selected=$(<"$1/selector")
   valid_ref "$selected" || fail 'invalid selector'
@@ -131,43 +130,41 @@ record_switch() {
 verify_tip() {
   [[ $(git -C "$1" ls-remote --exit-code origin "refs/heads/$2" | cut -f1) == "$3" ]] || fail 'branch tip changed during deployment; retry'
 }
-_legacy() {
+_machine_internal() {
 local op=$1; shift
 case $op in
-  manifest)
+  inputs)
     [[ $# == 2 ]] || usage
-    task=$1 manifest=$2
-    [[ $task == plan || $task == install || $task == bootstrap || $task == transition ]] || usage
-    [[ -f $manifest && ! -L $manifest && $(stat -c %a "$manifest") == 600 ]] || fail 'manifest must be a mode-600 regular file (not a link)'
-    [[ $(realpath -m "$manifest") == "$(realpath "$manifest")" ]] || fail 'linked manifest path'
+    task=$1 inputs=$2
+    [[ $task == check || $task == apply ]] || usage
+    [[ -f $inputs && ! -L $inputs && $(stat -c %a "$inputs") == 600 ]] || fail 'inputs must be a mode-600 regular file (not a link)'
+    [[ $(realpath -m "$inputs") == "$(realpath "$inputs")" ]] || fail 'linked inputs path'
     # Off-host state must never be committed or staged in the consumer source.
     jq -e '
       type == "object" and (.version == 1) and
-      ((keys - ["version","target","disk","record","repo","revision","branch","output","machine","receipt","remoteCheckout","remoteMachine","remoteState","reportGenerator","recoveryDir","preEraseCheck","newMachine","candidateBranch"]) == []) and
+      ((keys - ["version","target","disk","record","repo","revision","branch","output","machine","receipt","remoteCheckout","remoteMachine","remoteState","reportGenerator","recoveryDir","preEraseCheck"]) == []) and
       ([.target,.disk,.record,.repo,.revision,.branch,.output,.machine,.receipt,.remoteCheckout,.remoteMachine,.remoteState] | all(type == "string" and length > 0)) and
-      (. as $m | ["reportGenerator","recoveryDir","preEraseCheck","newMachine","candidateBranch"] | all(. as $key | ($m | has($key) | not) or ($m[$key] | type == "string" and length > 0)))
-    ' "$manifest" >/dev/null || fail 'invalid manifest schema'
-    # Do not accept a tracked or unignored manifest inside the consumer checkout.
-    repo=$(jq -r .repo "$manifest")
+      (. as $m | ["reportGenerator","recoveryDir","preEraseCheck"] | all(. as $key | ($m | has($key) | not) or ($m[$key] | type == "string" and length > 0)))
+    ' "$inputs" >/dev/null || fail 'invalid inputs schema'
+    # Private off-host inputs must stay outside the consumer commit.
+    repo=$(jq -r .repo "$inputs")
     [[ -d $repo && ! -L $repo && $(realpath -m "$repo") == "$(realpath "$repo")" ]] || fail 'invalid checkout'
-    manifest_abs=$(realpath "$manifest")
+    inputs_abs=$(realpath "$inputs")
     repo_abs=$(realpath "$repo")
-    if [[ $manifest_abs == "$repo_abs/"* ]]; then
-      relative=${manifest_abs#"$repo_abs/"}
-      git -C "$repo" check-ignore -q -- "$relative" || fail 'manifest inside checkout must be Git-ignored'
-      [[ -z $(git -C "$repo" ls-files -- "$relative") ]] || fail 'tracked manifest'
+    if [[ $inputs_abs == "$repo_abs/"* ]]; then
+      relative=${inputs_abs#"$repo_abs/"}
+      git -C "$repo" check-ignore -q -- "$relative" || fail 'inputs inside checkout must be Git-ignored'
+      [[ -z $(git -C "$repo" ls-files -- "$relative") ]] || fail 'tracked inputs'
     fi
-    target=$(jq -r .target "$manifest") disk=$(jq -r .disk "$manifest")
-    record=$(jq -r .record "$manifest") rev=$(jq -r .revision "$manifest")
-    branch=$(jq -r .branch "$manifest") output=$(jq -r .output "$manifest")
-    machine=$(jq -r .machine "$manifest") receipt=$(jq -r .receipt "$manifest")
-    checkout=$(jq -r .remoteCheckout "$manifest")
-    remote_machine=$(jq -r .remoteMachine "$manifest") state=$(jq -r .remoteState "$manifest")
-    generator=$(jq -r '.reportGenerator // "-"' "$manifest")
-    recovery=$(jq -r '.recoveryDir // "-"' "$manifest")
-    pre_erase=$(jq -r '.preEraseCheck // "-"' "$manifest")
-    new_machine=$(jq -r '.newMachine // ""' "$manifest")
-    candidate=$(jq -r '.candidateBranch // ""' "$manifest")
+    target=$(jq -r .target "$inputs") disk=$(jq -r .disk "$inputs")
+    record=$(jq -r .record "$inputs") rev=$(jq -r .revision "$inputs")
+    branch=$(jq -r .branch "$inputs") output=$(jq -r .output "$inputs")
+    machine=$(jq -r .machine "$inputs") receipt=$(jq -r .receipt "$inputs")
+    checkout=$(jq -r .remoteCheckout "$inputs")
+    remote_machine=$(jq -r .remoteMachine "$inputs") state=$(jq -r .remoteState "$inputs")
+    generator=$(jq -r '.reportGenerator // "-"' "$inputs")
+    recovery=$(jq -r '.recoveryDir // "-"' "$inputs")
+    pre_erase=$(jq -r '.preEraseCheck // "-"' "$inputs")
     [[ $target =~ ^root@[a-zA-Z0-9_.:-]+$ && $disk =~ ^/dev/[a-zA-Z0-9_./-]+$ && $disk != *..* ]] || fail 'invalid target or disk'
     [[ $rev =~ ^[0-9a-f]{40}$ && $output =~ ^[a-zA-Z0-9_-]+$ ]] || fail 'invalid revision or output'
     valid_ref "branch:$branch" || fail 'invalid branch'
@@ -178,33 +175,17 @@ case $op in
       [[ $path =~ ^/[a-zA-Z0-9_./-]+$ && $path != *..* ]] || fail 'unsafe remote path'
     done
     private_record "$record"
-    [[ $target == "$(jq -r .target "$record")" && $disk == "$(jq -r .disk.path "$record")" ]] || fail 'manifest differs from discovery record'
+    [[ $target == "$(jq -r .target "$record")" && $disk == "$(jq -r .disk.path "$record")" ]] || fail 'inputs differs from discovery record'
     [[ -f $machine/machine.nix && ! -L $machine && ! -L $machine/machine.nix && $(stat -c %a "$machine/machine.nix") == 600 ]] || fail 'unsafe private machine.nix'
-    if [[ $task == plan || $task == install ]]; then
-      [[ ! -e $receipt && ! -L $receipt ]] || fail 'install receipt already exists; never reinstall to repair bootstrap'
+    [[ ! -e $receipt && ! -L $receipt ]] || fail 'install receipt already exists; never reinstall to repair bootstrap'
       [[ $repo == /* && $machine == /* ]] || fail 'checkout and machine paths must be absolute'
       [[ $(git -C "$repo" ls-remote --exit-code origin "refs/heads/$branch" | cut -f1) == "$rev" ]] || fail 'revision differs from pushed branch tip'
       bash "${BASH_SOURCE[0]}" preflight "$record"
       printf 'Reviewed install plan: pushed revision=%s branch=%s output=%s\n' "$rev" "$branch" "$output"
       printf 'Paths: repo=%s machine=%s receipt=%s remote checkout=%s machine=%s state=%s\n' "$repo" "$machine" "$receipt" "$checkout" "$remote_machine" "$state"
       printf 'Consumer checks: report=%s recovery=%s pre-erase=%s\n' "$generator" "$recovery" "$pre_erase"
-      [[ $task == plan ]] && exit 0
+      [[ $task == check ]] && exit 0
       bash "${BASH_SOURCE[0]}" install "$record" "$repo" "$rev" "$machine" "$output" "$branch" "$receipt" "$generator" "$recovery" "$pre_erase"
-    else
-      [[ -f $receipt && ! -L $receipt && $(stat -c %a "$receipt") == 600 ]] || fail 'missing private receipt'
-      [[ $target == "$(jq -er .target "$receipt")" && $rev == "$(jq -er .revision "$receipt")" && $branch == "$(jq -er .branch "$receipt")" ]] || fail 'manifest differs from install receipt'
-      [[ $(git -C "$repo" remote get-url origin) == "$(jq -er .origin "$receipt")" ]] || fail 'origin differs from install receipt'
-      case $task in
-        bootstrap) bash "${BASH_SOURCE[0]}" bootstrap "$receipt" "$repo" "$machine" "$checkout" "$remote_machine" "$state" ;;
-        transition)
-          [[ -n $new_machine && $new_machine == /* && $new_machine != *..* ]] || fail 'transition needs an absolute newMachine path'
-          # The installed branch is a baseline; the requested candidate branch
-          # may change, but target, revision and original machine may not.
-          valid_ref "branch:$candidate" || fail 'transition needs a valid candidateBranch'
-          printf 'Reviewed transition: target=%s baseline=%s candidate=%s output=%s newMachine=%s remote=%s\n' "$target" "$rev" "$candidate" "$output" "$new_machine" "$state"
-          bash "${BASH_SOURCE[0]}" transition "$receipt" "$target" "$checkout" "$candidate" "$new_machine" "$remote_machine" "$output" "$state" ;;
-      esac
-    fi
     ;;
   plan-update)
     # Target-side planning: only an already installed, branch-tracking host.
@@ -255,7 +236,7 @@ case $op in
     ;;
   plan-build)
     # Internal non-destructive evaluated check. The operator CLI owns the
-    # reviewed plan; the legacy install path repeats these gates before erase.
+    # reviewed plan; the installer repeats these gates before erase.
     [[ $# == 8 ]] || usage
     record=$1 repo=$2 rev=$3 machine=$4 host=$5 branch=$6 generator=$7 pre_erase=$8
     [[ $host =~ ^[a-zA-Z0-9_-]+$ && $rev =~ ^[0-9a-f]{40}$ ]] || fail 'invalid output or revision'
@@ -387,7 +368,7 @@ case $op in
     fi
     url=$(git -C "$repo" remote get-url origin)
     [[ -n $url && $url == "$expected_url" ]] || fail 'origin differs from install receipt'
-    helper=$(dirname "${BASH_SOURCE[0]}")/bootstrap-remote.sh
+    helper=$(dirname "${BASH_SOURCE[0]}")/bootstrap/remote.sh
     remote_args=''
     for arg in "$url" "$rev" "$checkout" "$remote_machine" "$state" "$branch"; do
       printf -v quoted '%q' "$arg"
@@ -469,18 +450,6 @@ case $op in
     mkdir -p -m 700 "$state/transition-incoming"
     rm -f -- "$state/transition-incoming/machine.nix"
     ;;
-  migrate)
-    [[ $# == 2 ]] || usage
-    state=$1 ref=$2
-    locked_state "$state"
-    [[ ! -e $state/selector && ! -L $state/selector ]] || fail 'selector already exists'
-    valid_ref "$ref" || fail 'invalid selector'
-    # Migration cannot assert an unverified branch baseline. Start pinned;
-    # use a reviewed transition to authorize branch tracking.
-    [[ $ref == "commit:$current" ]] || fail 'migrate only to installed commit pin'
-    printf '%s\n' "$ref" >"$state/selector"
-    chmod 600 "$state/selector"
-    ;;
   poll | deploy | apply-transition)
     if [[ $op == poll ]]; then [[ $# == 4 ]] || usage
     elif [[ $op == deploy ]]; then [[ $# == 5 ]] || usage
@@ -547,11 +516,11 @@ esac
 # @arg target! <TARGET> Root SSH target
 # @arg disk! <DISK> Whole /dev disk
 # @arg record! <FILE> New private discovery record
-discover() { _legacy discover "$@"; }
+discover() { _machine_internal discover "$@"; }
 
 # @cmd Re-probe and compare the target with its discovery record
 # @arg record! <FILE> Private discovery record
-preflight() { _legacy preflight "$@"; }
+preflight() { _machine_internal preflight "$@"; }
 
 # @cmd Build and install an exact pushed revision; erases the selected disk
 # @arg record! <FILE> Discovery record
@@ -564,7 +533,7 @@ preflight() { _legacy preflight "$@"; }
 # @arg generator <FILE> Report generator, or -
 # @arg recovery <DIR> Recovery tree, or -
 # @arg pre_erase <FILE> Pre-erase check, or -
-install() { _legacy install "$@"; }
+install() { _machine_internal install "$@"; }
 
 # @cmd Bootstrap the exact installed revision without erasing disks
 # @arg receipt! <FILE> Off-host receipt
@@ -573,9 +542,9 @@ install() { _legacy install "$@"; }
 # @arg checkout! <PATH> Remote checkout
 # @arg remote_machine! <PATH> Remote machine directory
 # @arg state! <PATH> Remote root-only state
-bootstrap() { _legacy bootstrap "$@"; }
+bootstrap() { _machine_internal bootstrap "$@"; }
 
-# @cmd Adopt a verified legacy host without reinstalling
+# @cmd Internal: adopt a verified existing host without reinstalling
 # @arg evidence! <FILE> Operator-verified evidence
 # @arg repo! <DIR> Consumer checkout
 # @arg machine! <DIR> Original private inputs
@@ -583,7 +552,7 @@ bootstrap() { _legacy bootstrap "$@"; }
 # @arg checkout! <PATH> Remote checkout
 # @arg remote_machine! <PATH> Remote machine directory
 # @arg state! <PATH> Remote state
-adopt() { _legacy adopt "$@"; }
+adopt() { _machine_internal adopt "$@"; }
 
 # @cmd Run a reviewed non-destructive candidate transition
 # @arg receipt! <FILE> Install receipt
@@ -594,14 +563,14 @@ adopt() { _legacy adopt "$@"; }
 # @arg remote_machine! <PATH> Remote machine directory
 # @arg host! <HOST> NixOS output
 # @arg state! <PATH> Remote state
-transition() { _legacy transition "$@"; }
+transition() { _machine_internal transition "$@"; }
 
 # @cmd Poll the root-owned selector for a new revision (target-side)
 # @arg repo! <DIR> Target checkout
 # @arg machine! <DIR> Target private machine input
 # @arg host! <HOST> NixOS output
 # @arg state! <DIR> Root-only state
-poll() { _legacy poll "$@"; }
+poll() { _machine_internal poll "$@"; }
 
 # @cmd Switch to an explicitly selected revision (target-side)
 # @arg repo! <DIR> Target checkout
@@ -609,31 +578,18 @@ poll() { _legacy poll "$@"; }
 # @arg machine! <DIR> Target private machine input
 # @arg host! <HOST> NixOS output
 # @arg state! <DIR> Root-only state
-deploy() { _legacy deploy "$@"; }
+deploy() { _machine_internal deploy "$@"; }
 
-# @cmd Pin an existing installed revision in root-owned state
-# @arg state! <DIR> Root-only state
-# @arg ref! <REF> Installed commit pin
-migrate() { _legacy migrate "$@"; }
+# @cmd Internal: validate ephemeral installation inputs
+inputs() { :; }
 
-# @cmd Operate on a private off-host JSON manifest
-manifest() { :; }
+# @cmd Internal: re-probe and check an off-host installation proposal
+# @arg file! <FILE> Mode-600 ephemeral input data
+inputs::check() { _machine_internal inputs check "$@"; }
 
-# @cmd Review target, whole disk and exact pushed tip without installing
-# @arg file! <FILE> Mode-600 private manifest
-manifest::plan() { _legacy manifest plan "$@"; }
-
-# @cmd Build and install from a reviewed manifest; erases the selected disk
-# @arg file! <FILE> Mode-600 private manifest
-manifest::install() { _legacy manifest install "$@"; }
-
-# @cmd Resume non-destructive bootstrap from a private manifest
-# @arg file! <FILE> Mode-600 private manifest
-manifest::bootstrap() { _legacy manifest bootstrap "$@"; }
-
-# @cmd Apply a reviewed non-destructive transition
-# @arg file! <FILE> Mode-600 private manifest
-manifest::transition() { _legacy manifest transition "$@"; }
+# @cmd Internal: revalidate and install from reviewed input data
+# @arg file! <FILE> Mode-600 ephemeral input data
+inputs::apply() { _machine_internal inputs apply "$@"; }
 
 # @cmd Internal: build and check a reviewed branch update without switching
 # @arg repo! <PATH> Target checkout
@@ -643,7 +599,7 @@ manifest::transition() { _legacy manifest transition "$@"; }
 # @arg branch! <BRANCH> Selected branch
 # @arg rev! <REV> Exact candidate tip
 # @arg origin! <URL> Reviewed Git origin
-plan-update() { _legacy plan-update "$@"; }
+plan-update() { _machine_internal plan-update "$@"; }
 
 # @cmd Internal: switch only the exact reviewed branch update
 # @arg repo! <PATH> Target checkout
@@ -655,7 +611,7 @@ plan-update() { _legacy plan-update "$@"; }
 # @arg next! <REV> Reviewed candidate revision
 # @arg sha! <SHA> Reviewed private machine input
 # @arg origin! <URL> Reviewed Git origin
-apply-reviewed() { _legacy apply-reviewed "$@"; }
+apply-reviewed() { _machine_internal apply-reviewed "$@"; }
 
 # @cmd Internal: build and check a fresh install plan without erasing
 # @arg record! <FILE> Private observed facts
@@ -666,7 +622,7 @@ apply-reviewed() { _legacy apply-reviewed "$@"; }
 # @arg branch! <BRANCH> Pushed branch
 # @arg generator! <FILE> Report generator or -
 # @arg pre_erase! <FILE> Evaluated check or -
-plan-build() { _legacy plan-build "$@"; }
+plan-build() { _machine_internal plan-build "$@"; }
 
 # Internal SSH protocol. Exposed to argc for strict parsing, not for operators.
 # @cmd Internal: prepare a reviewed transition upload (target-side)
@@ -675,7 +631,7 @@ plan-build() { _legacy plan-build "$@"; }
 # @arg state! <PATH> Remote state
 # @arg rev! <REV> Installed revision
 # @arg sha! <SHA> Installed machine hash
-prepare-transition() { _legacy prepare-transition "$@"; }
+prepare-transition() { _machine_internal prepare-transition "$@"; }
 
 # @cmd Internal: apply a reviewed candidate transition (target-side)
 # @arg repo! <PATH> Remote checkout
@@ -686,7 +642,7 @@ prepare-transition() { _legacy prepare-transition "$@"; }
 # @arg reviewed! <PATH> Reviewed machine input
 # @arg rev! <REV> Installed revision
 # @arg sha! <SHA> Installed machine hash
-apply-transition() { _legacy apply-transition "$@"; }
+apply-transition() { _machine_internal apply-transition "$@"; }
 
 # ARGC-BUILD {
 # This block was generated by argc (https://github.com/sigoden/argc).
@@ -712,7 +668,7 @@ _argc_run() {
 
 _argc_usage() {
     cat <<-'EOF'
-Shared deployment toolkit; only install erases a disk.
+Internal machine protocol; use moss machine for operator commands.
 
 USAGE: deploy <COMMAND>
 
@@ -721,12 +677,11 @@ COMMANDS:
   preflight           Re-probe and compare the target with its discovery record
   install             Build and install an exact pushed revision; erases the selected disk
   bootstrap           Bootstrap the exact installed revision without erasing disks
-  adopt               Adopt a verified legacy host without reinstalling
+  adopt               Internal: adopt a verified existing host without reinstalling
   transition          Run a reviewed non-destructive candidate transition
   poll                Poll the root-owned selector for a new revision (target-side)
   deploy              Switch to an explicitly selected revision (target-side)
-  migrate             Pin an existing installed revision in root-owned state
-  manifest            Operate on a private off-host JSON manifest
+  inputs              Internal: validate ephemeral installation inputs
   plan-update         Internal: build and check a reviewed branch update without switching
   apply-reviewed      Internal: switch only the exact reviewed branch update
   plan-build          Internal: build and check a fresh install plan without erasing
@@ -743,7 +698,7 @@ _argc_version() {
 
 _argc_parse() {
     local _argc_key _argc_action
-    local _argc_subcmds="discover, preflight, install, bootstrap, adopt, transition, poll, deploy, migrate, manifest, plan-update, apply-reviewed, plan-build, prepare-transition, apply-transition"
+    local _argc_subcmds="discover, preflight, install, bootstrap, adopt, transition, poll, deploy, inputs, plan-update, apply-reviewed, plan-build, prepare-transition, apply-transition"
     while [[ $_argc_index -lt $_argc_len ]]; do
         _argc_item="${argc__args[_argc_index]}"
         _argc_key="${_argc_item%%=*}"
@@ -800,14 +755,9 @@ _argc_parse() {
             _argc_action=_argc_parse_deploy
             break
             ;;
-        migrate)
+        inputs)
             _argc_index=$((_argc_index + 1))
-            _argc_action=_argc_parse_migrate
-            break
-            ;;
-        manifest)
-            _argc_index=$((_argc_index + 1))
-            _argc_action=_argc_parse_manifest
+            _argc_action=_argc_parse_inputs
             break
             ;;
         plan-update)
@@ -862,11 +812,8 @@ _argc_parse() {
             deploy)
                 _argc_usage_deploy
                 ;;
-            migrate)
-                _argc_usage_migrate
-                ;;
-            manifest)
-                _argc_usage_manifest
+            inputs)
+                _argc_usage_inputs
                 ;;
             plan-update)
                 _argc_usage_plan-update
@@ -1219,7 +1166,7 @@ _argc_parse_bootstrap() {
 
 _argc_usage_adopt() {
     cat <<-'EOF'
-Adopt a verified legacy host without reinstalling
+Internal: adopt a verified existing host without reinstalling
 
 USAGE: deploy adopt <FILE> <DIR> <DIR> <HOST> <PATH> <PATH> <PATH>
 
@@ -1565,89 +1512,28 @@ _argc_parse_deploy() {
     fi
 }
 
-_argc_usage_migrate() {
+_argc_usage_inputs() {
     cat <<-'EOF'
-Pin an existing installed revision in root-owned state
+Internal: validate ephemeral installation inputs
 
-USAGE: deploy migrate <DIR> <REF>
-
-ARGS:
-  <DIR>  Root-only state
-  <REF>  Installed commit pin
-EOF
-    exit
-}
-
-_argc_parse_migrate() {
-    local _argc_key _argc_action
-    local _argc_subcmds=""
-    while [[ $_argc_index -lt $_argc_len ]]; do
-        _argc_item="${argc__args[_argc_index]}"
-        _argc_key="${_argc_item%%=*}"
-        case "$_argc_key" in
-        --help | -help | -h)
-            _argc_usage_migrate
-            ;;
-        --)
-            _argc_dash="${#argc__positionals[@]}"
-            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
-            _argc_index=$_argc_len
-            break
-            ;;
-        *)
-            argc__positionals+=("$_argc_item")
-            _argc_index=$((_argc_index + 1))
-            ;;
-        esac
-    done
-    if [[ -n "${_argc_action:-}" ]]; then
-        $_argc_action
-    else
-        argc__fn=migrate
-        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
-            _argc_usage_migrate
-        fi
-        _argc_match_positionals 0 0
-        local values_index values_size
-        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
-        if [[ -n "$values_index" ]]; then
-            argc_state="${argc__positionals[values_index]}"
-        else
-            _argc_die "error: the required environments \`<DIR>\` were not provided"
-        fi
-        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[1]:-}"
-        if [[ -n "$values_index" ]]; then
-            argc_ref="${argc__positionals[values_index]}"
-        else
-            _argc_die "error: the required environments \`<REF>\` were not provided"
-        fi
-    fi
-}
-
-_argc_usage_manifest() {
-    cat <<-'EOF'
-Operate on a private off-host JSON manifest
-
-USAGE: deploy manifest <COMMAND>
+USAGE: deploy inputs <COMMAND>
 
 COMMANDS:
-  plan        Review target, whole disk and exact pushed tip without installing
-  install     Build and install from a reviewed manifest; erases the selected disk
-  bootstrap   Resume non-destructive bootstrap from a private manifest
-  transition  Apply a reviewed non-destructive transition
+  check  Internal: re-probe and check an off-host installation proposal
+  apply  Internal: revalidate and install from reviewed input data
 EOF
     exit
 }
 
-_argc_parse_manifest() {
+_argc_parse_inputs() {
     local _argc_key _argc_action
-    local _argc_subcmds="plan, install, bootstrap, transition"
+    local _argc_subcmds="check, apply"
     while [[ $_argc_index -lt $_argc_len ]]; do
         _argc_item="${argc__args[_argc_index]}"
         _argc_key="${_argc_item%%=*}"
         case "$_argc_key" in
         --help | -help | -h)
-            _argc_usage_manifest
+            _argc_usage_inputs
             ;;
         --)
             _argc_dash="${#argc__positionals[@]}"
@@ -1655,43 +1541,27 @@ _argc_parse_manifest() {
             _argc_index=$_argc_len
             break
             ;;
-        plan)
+        check)
             _argc_index=$((_argc_index + 1))
-            _argc_action=_argc_parse_manifest_plan
+            _argc_action=_argc_parse_inputs_check
             break
             ;;
-        install)
+        apply)
             _argc_index=$((_argc_index + 1))
-            _argc_action=_argc_parse_manifest_install
-            break
-            ;;
-        bootstrap)
-            _argc_index=$((_argc_index + 1))
-            _argc_action=_argc_parse_manifest_bootstrap
-            break
-            ;;
-        transition)
-            _argc_index=$((_argc_index + 1))
-            _argc_action=_argc_parse_manifest_transition
+            _argc_action=_argc_parse_inputs_apply
             break
             ;;
         help)
             local help_arg="${argc__args[$((_argc_index + 1))]:-}"
             case "$help_arg" in
-            plan)
-                _argc_usage_manifest_plan
+            check)
+                _argc_usage_inputs_check
                 ;;
-            install)
-                _argc_usage_manifest_install
-                ;;
-            bootstrap)
-                _argc_usage_manifest_bootstrap
-                ;;
-            transition)
-                _argc_usage_manifest_transition
+            apply)
+                _argc_usage_inputs_apply
                 ;;
             "")
-                _argc_usage_manifest
+                _argc_usage_inputs
                 ;;
             *)
                 _argc_die "error: invalid value \`$help_arg\` for \`<command>\`"$'\n'"  [possible values: $_argc_subcmds]"
@@ -1699,30 +1569,30 @@ _argc_parse_manifest() {
             esac
             ;;
         *)
-            _argc_die "error: \`deploy-manifest\` requires a subcommand but one was not provided"$'\n'"  [subcommands: $_argc_subcmds]"
+            _argc_die "error: \`deploy-inputs\` requires a subcommand but one was not provided"$'\n'"  [subcommands: $_argc_subcmds]"
             ;;
         esac
     done
     if [[ -n "${_argc_action:-}" ]]; then
         $_argc_action
     else
-        _argc_usage_manifest
+        _argc_usage_inputs
     fi
 }
 
-_argc_usage_manifest_plan() {
+_argc_usage_inputs_check() {
     cat <<-'EOF'
-Review target, whole disk and exact pushed tip without installing
+Internal: re-probe and check an off-host installation proposal
 
-USAGE: deploy manifest plan <FILE>
+USAGE: deploy inputs check <FILE>
 
 ARGS:
-  <FILE>  Mode-600 private manifest
+  <FILE>  Mode-600 ephemeral input data
 EOF
     exit
 }
 
-_argc_parse_manifest_plan() {
+_argc_parse_inputs_check() {
     local _argc_key _argc_action
     local _argc_subcmds=""
     while [[ $_argc_index -lt $_argc_len ]]; do
@@ -1730,7 +1600,7 @@ _argc_parse_manifest_plan() {
         _argc_key="${_argc_item%%=*}"
         case "$_argc_key" in
         --help | -help | -h)
-            _argc_usage_manifest_plan
+            _argc_usage_inputs_check
             ;;
         --)
             _argc_dash="${#argc__positionals[@]}"
@@ -1747,9 +1617,9 @@ _argc_parse_manifest_plan() {
     if [[ -n "${_argc_action:-}" ]]; then
         $_argc_action
     else
-        argc__fn=manifest::plan
+        argc__fn=inputs::check
         if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
-            _argc_usage_manifest_plan
+            _argc_usage_inputs_check
         fi
         _argc_match_positionals 0
         local values_index values_size
@@ -1762,19 +1632,19 @@ _argc_parse_manifest_plan() {
     fi
 }
 
-_argc_usage_manifest_install() {
+_argc_usage_inputs_apply() {
     cat <<-'EOF'
-Build and install from a reviewed manifest; erases the selected disk
+Internal: revalidate and install from reviewed input data
 
-USAGE: deploy manifest install <FILE>
+USAGE: deploy inputs apply <FILE>
 
 ARGS:
-  <FILE>  Mode-600 private manifest
+  <FILE>  Mode-600 ephemeral input data
 EOF
     exit
 }
 
-_argc_parse_manifest_install() {
+_argc_parse_inputs_apply() {
     local _argc_key _argc_action
     local _argc_subcmds=""
     while [[ $_argc_index -lt $_argc_len ]]; do
@@ -1782,7 +1652,7 @@ _argc_parse_manifest_install() {
         _argc_key="${_argc_item%%=*}"
         case "$_argc_key" in
         --help | -help | -h)
-            _argc_usage_manifest_install
+            _argc_usage_inputs_apply
             ;;
         --)
             _argc_dash="${#argc__positionals[@]}"
@@ -1799,113 +1669,9 @@ _argc_parse_manifest_install() {
     if [[ -n "${_argc_action:-}" ]]; then
         $_argc_action
     else
-        argc__fn=manifest::install
+        argc__fn=inputs::apply
         if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
-            _argc_usage_manifest_install
-        fi
-        _argc_match_positionals 0
-        local values_index values_size
-        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
-        if [[ -n "$values_index" ]]; then
-            argc_file="${argc__positionals[values_index]}"
-        else
-            _argc_die "error: the required environments \`<FILE>\` were not provided"
-        fi
-    fi
-}
-
-_argc_usage_manifest_bootstrap() {
-    cat <<-'EOF'
-Resume non-destructive bootstrap from a private manifest
-
-USAGE: deploy manifest bootstrap <FILE>
-
-ARGS:
-  <FILE>  Mode-600 private manifest
-EOF
-    exit
-}
-
-_argc_parse_manifest_bootstrap() {
-    local _argc_key _argc_action
-    local _argc_subcmds=""
-    while [[ $_argc_index -lt $_argc_len ]]; do
-        _argc_item="${argc__args[_argc_index]}"
-        _argc_key="${_argc_item%%=*}"
-        case "$_argc_key" in
-        --help | -help | -h)
-            _argc_usage_manifest_bootstrap
-            ;;
-        --)
-            _argc_dash="${#argc__positionals[@]}"
-            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
-            _argc_index=$_argc_len
-            break
-            ;;
-        *)
-            argc__positionals+=("$_argc_item")
-            _argc_index=$((_argc_index + 1))
-            ;;
-        esac
-    done
-    if [[ -n "${_argc_action:-}" ]]; then
-        $_argc_action
-    else
-        argc__fn=manifest::bootstrap
-        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
-            _argc_usage_manifest_bootstrap
-        fi
-        _argc_match_positionals 0
-        local values_index values_size
-        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
-        if [[ -n "$values_index" ]]; then
-            argc_file="${argc__positionals[values_index]}"
-        else
-            _argc_die "error: the required environments \`<FILE>\` were not provided"
-        fi
-    fi
-}
-
-_argc_usage_manifest_transition() {
-    cat <<-'EOF'
-Apply a reviewed non-destructive transition
-
-USAGE: deploy manifest transition <FILE>
-
-ARGS:
-  <FILE>  Mode-600 private manifest
-EOF
-    exit
-}
-
-_argc_parse_manifest_transition() {
-    local _argc_key _argc_action
-    local _argc_subcmds=""
-    while [[ $_argc_index -lt $_argc_len ]]; do
-        _argc_item="${argc__args[_argc_index]}"
-        _argc_key="${_argc_item%%=*}"
-        case "$_argc_key" in
-        --help | -help | -h)
-            _argc_usage_manifest_transition
-            ;;
-        --)
-            _argc_dash="${#argc__positionals[@]}"
-            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
-            _argc_index=$_argc_len
-            break
-            ;;
-        *)
-            argc__positionals+=("$_argc_item")
-            _argc_index=$((_argc_index + 1))
-            ;;
-        esac
-    done
-    if [[ -n "${_argc_action:-}" ]]; then
-        $_argc_action
-    else
-        argc__fn=manifest::transition
-        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
-            _argc_usage_manifest_transition
+            _argc_usage_inputs_apply
         fi
         _argc_match_positionals 0
         local values_index values_size

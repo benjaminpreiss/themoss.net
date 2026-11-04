@@ -34,8 +34,8 @@ config_file() {
   fi
 }
 # Never evaluate operator JSON as shell. This is a private adapter to the
-# existing strict toolkit validator; the generated manifest is ephemeral.
-legacy_input() {
+# existing strict toolkit validator; the generated inputs is ephemeral.
+private_input() {
   local config=$1 target=$2 disk=$3 record=$4 destination=$5
   jq -n --argjson c "$(jq -c . "$config")" --arg target "$target" --arg disk "$disk" --arg record "$record" \
     '$c + {target:$target,disk:$disk,record:$record}' >"$destination"
@@ -60,7 +60,7 @@ machine::plan() {
   [[ $target =~ ^root@[a-zA-Z0-9_.:-]+$ ]] || fail 'invalid SSH target'
   [[ $output == /* && $output != *..* && ! -e $output && ! -L $output && -d $(dirname "$output") && ! -L $(dirname "$output") ]] || fail 'choose a new absolute private plan path'
   config_file "$config"
-  local tmp record manifest repo rev machine host branch generator check sha facter origin receipt checkout remote_machine state expected
+  local tmp record inputs repo rev machine host branch generator check sha facter origin receipt checkout remote_machine state expected
   repo=$(jq -r .repo "$config") rev=$(jq -r .revision "$config")
   machine=$(jq -r .machine "$config") host=$(jq -r .output "$config")
   branch=$(jq -r .branch "$config") receipt=$(jq -r .receipt "$config")
@@ -91,10 +91,10 @@ machine::plan() {
   [[ $disk =~ ^/dev/[a-zA-Z0-9_./-]+$ && $disk != *..* ]] || fail 'fresh install requires an explicitly chosen whole /dev disk'
   tmp=$(mktemp -d "$(dirname "$output")/.moss-plan.XXXXXXXX")
   trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
-  record=$tmp/record.json manifest=$tmp/inputs.json
+  record=$tmp/record.json inputs=$tmp/inputs.json
   bash "$deploy" discover "$target" "$disk" "$record"
-  legacy_input "$config" "$target" "$disk" "$record" "$manifest"
-  bash "$deploy" manifest plan "$manifest"
+  private_input "$config" "$target" "$disk" "$record" "$inputs"
+  bash "$deploy" inputs check "$inputs"
   generator=$(jq -r '.reportGenerator // "-"' "$config")
   check=$(jq -r '.preEraseCheck // "-"' "$config")
   bash "$deploy" plan-build "$record" "$repo" "$rev" "$machine" "$host" "$branch" "$generator" "$check"
@@ -148,7 +148,7 @@ machine::apply() {
     ((keys - ["version","type","config","configSha256","target","disk","observed","machineSha256","facterSha256","origin"]) == []) and
     ([.config,.configSha256,.target,.disk,.machineSha256,.origin] | all(type == "string" and length > 0)) and
     (.facterSha256 | type == "string") and (.observed | type == "object")' "$plan" >/dev/null || fail 'unknown or invalid plan type; no action taken'
-  local config target disk tmp record manifest machine repo facter
+  local config target disk tmp record inputs machine repo facter
   config=$(jq -r .config "$plan") target=$(jq -r .target "$plan") disk=$(jq -r .disk "$plan")
   config_file "$config"
   [[ $(sha256sum "$config" | cut -d ' ' -f1) == "$(jq -r .configSha256 "$plan")" ]] || fail 'configuration changed; make a new plan'
@@ -164,16 +164,16 @@ machine::apply() {
   [[ $target == "$(jq -r .observed.target "$plan")" && $disk == "$(jq -r .observed.disk.path "$plan")" ]] || fail 'plan target or disk differs from recorded facts'
   tmp=$(mktemp -d "$(dirname "$plan")/.moss-apply.XXXXXXXX")
   trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
-  record=$tmp/record.json manifest=$tmp/inputs.json
+  record=$tmp/record.json inputs=$tmp/inputs.json
   jq .observed "$plan" >"$record"; chmod 600 "$record"
-  legacy_input "$config" "$target" "$disk" "$record" "$manifest"
-  bash "$deploy" manifest plan "$manifest"
+  private_input "$config" "$target" "$disk" "$record" "$inputs"
+  bash "$deploy" inputs check "$inputs"
   echo "Applying reviewed INSTALL plan to $target: erase $disk after typed confirmation" >&2
   # The existing installer repeats the build, consumer check, target probe and
   # branch-tip check. Report generation occurred during plan, never here.
-  jq 'del(.reportGenerator)' "$manifest" >"$tmp/install.json"
+  jq 'del(.reportGenerator)' "$inputs" >"$tmp/install.json"
   chmod 600 "$tmp/install.json"
-  bash "$deploy" manifest install "$tmp/install.json"
+  bash "$deploy" inputs apply "$tmp/install.json"
 }
 
 # @cmd Resume first-boot handoff after independently verifying the new SSH host key

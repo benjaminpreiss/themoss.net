@@ -1,6 +1,6 @@
 {
   "name": "deploy",
-  "describe": "Shared deployment toolkit; only install erases a disk.",
+  "describe": "Internal machine protocol; use moss machine for operator commands.",
   "version": null,
   "aliases": [],
   "flag_options": [
@@ -440,7 +440,7 @@
     },
     {
       "name": "adopt",
-      "describe": "Adopt a verified legacy host without reinstalling",
+      "describe": "Internal: adopt a verified existing host without reinstalling",
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -871,68 +871,8 @@
       "command_fn": "deploy"
     },
     {
-      "name": "migrate",
-      "describe": "Pin an existing installed revision in root-owned state",
-      "version": null,
-      "aliases": [],
-      "flag_options": [
-        {
-          "id": "help",
-          "long_name": "--help",
-          "short_name": "-h",
-          "describe": "",
-          "flag": true,
-          "notations": [],
-          "required": false,
-          "multiple_values": false,
-          "multiple_occurs": false,
-          "num_args": [
-            0,
-            0
-          ],
-          "delimiter": null,
-          "terminated": false,
-          "prefixed": false,
-          "assigned": false,
-          "default": null,
-          "choice": null,
-          "env": null,
-          "inherited": false
-        }
-      ],
-      "positionals": [
-        {
-          "id": "state",
-          "describe": "Root-only state",
-          "notation": "DIR",
-          "required": true,
-          "multiple": false,
-          "delimiter": null,
-          "terminated": false,
-          "default": null,
-          "choice": null,
-          "env": null
-        },
-        {
-          "id": "ref",
-          "describe": "Installed commit pin",
-          "notation": "REF",
-          "required": true,
-          "multiple": false,
-          "delimiter": null,
-          "terminated": false,
-          "default": null,
-          "choice": null,
-          "env": null
-        }
-      ],
-      "envs": [],
-      "subcommands": [],
-      "command_fn": "migrate"
-    },
-    {
-      "name": "manifest",
-      "describe": "Operate on a private off-host JSON manifest",
+      "name": "inputs",
+      "describe": "Internal: validate ephemeral installation inputs",
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -964,8 +904,8 @@
       "envs": [],
       "subcommands": [
         {
-          "name": "plan",
-          "describe": "Review target, whole disk and exact pushed tip without installing",
+          "name": "check",
+          "describe": "Internal: re-probe and check an off-host installation proposal",
           "version": null,
           "aliases": [],
           "flag_options": [
@@ -996,7 +936,7 @@
           "positionals": [
             {
               "id": "file",
-              "describe": "Mode-600 private manifest",
+              "describe": "Mode-600 ephemeral input data",
               "notation": "FILE",
               "required": true,
               "multiple": false,
@@ -1009,11 +949,11 @@
           ],
           "envs": [],
           "subcommands": [],
-          "command_fn": "manifest::plan"
+          "command_fn": "inputs::check"
         },
         {
-          "name": "install",
-          "describe": "Build and install from a reviewed manifest; erases the selected disk",
+          "name": "apply",
+          "describe": "Internal: revalidate and install from reviewed input data",
           "version": null,
           "aliases": [],
           "flag_options": [
@@ -1044,7 +984,7 @@
           "positionals": [
             {
               "id": "file",
-              "describe": "Mode-600 private manifest",
+              "describe": "Mode-600 ephemeral input data",
               "notation": "FILE",
               "required": true,
               "multiple": false,
@@ -1057,103 +997,7 @@
           ],
           "envs": [],
           "subcommands": [],
-          "command_fn": "manifest::install"
-        },
-        {
-          "name": "bootstrap",
-          "describe": "Resume non-destructive bootstrap from a private manifest",
-          "version": null,
-          "aliases": [],
-          "flag_options": [
-            {
-              "id": "help",
-              "long_name": "--help",
-              "short_name": "-h",
-              "describe": "",
-              "flag": true,
-              "notations": [],
-              "required": false,
-              "multiple_values": false,
-              "multiple_occurs": false,
-              "num_args": [
-                0,
-                0
-              ],
-              "delimiter": null,
-              "terminated": false,
-              "prefixed": false,
-              "assigned": false,
-              "default": null,
-              "choice": null,
-              "env": null,
-              "inherited": false
-            }
-          ],
-          "positionals": [
-            {
-              "id": "file",
-              "describe": "Mode-600 private manifest",
-              "notation": "FILE",
-              "required": true,
-              "multiple": false,
-              "delimiter": null,
-              "terminated": false,
-              "default": null,
-              "choice": null,
-              "env": null
-            }
-          ],
-          "envs": [],
-          "subcommands": [],
-          "command_fn": "manifest::bootstrap"
-        },
-        {
-          "name": "transition",
-          "describe": "Apply a reviewed non-destructive transition",
-          "version": null,
-          "aliases": [],
-          "flag_options": [
-            {
-              "id": "help",
-              "long_name": "--help",
-              "short_name": "-h",
-              "describe": "",
-              "flag": true,
-              "notations": [],
-              "required": false,
-              "multiple_values": false,
-              "multiple_occurs": false,
-              "num_args": [
-                0,
-                0
-              ],
-              "delimiter": null,
-              "terminated": false,
-              "prefixed": false,
-              "assigned": false,
-              "default": null,
-              "choice": null,
-              "env": null,
-              "inherited": false
-            }
-          ],
-          "positionals": [
-            {
-              "id": "file",
-              "describe": "Mode-600 private manifest",
-              "notation": "FILE",
-              "required": true,
-              "multiple": false,
-              "delimiter": null,
-              "terminated": false,
-              "default": null,
-              "choice": null,
-              "env": null
-            }
-          ],
-          "envs": [],
-          "subcommands": [],
-          "command_fn": "manifest::transition"
+          "command_fn": "inputs::apply"
         }
       ],
       "command_fn": null
