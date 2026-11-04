@@ -4,7 +4,7 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/../../.." && pwd -P)
 specs=${1:-$root/docs/cli-spec}
 printf '# moss machine command reference\n\n'
-printf '> Generated from the argc JSON spec. For destructive-operation safeguards and recovery, follow the [machine guide](../packages/cli/src/machine/README.md#deploy-a-machine), not this command list.\n'
+printf '> Generated from the argc JSON spec. For destructive-operation safeguards and recovery, follow the [machine guide](../packages/cli/src/machine/README.md#install-a-new-machine), not this command list.\n'
 jq -j '
     def arguments:
       (.positionals // [] | if length == 0 then "" else

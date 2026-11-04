@@ -1,6 +1,6 @@
 # moss machine command reference
 
-> Generated from the argc JSON spec. For destructive-operation safeguards and recovery, follow the [machine guide](../packages/cli/src/machine/README.md#deploy-a-machine), not this command list.
+> Generated from the argc JSON spec. For destructive-operation safeguards and recovery, follow the [machine guide](../packages/cli/src/machine/README.md#install-a-new-machine), not this command list.
 
 ## `bash packages/cli/bin/moss`
 
