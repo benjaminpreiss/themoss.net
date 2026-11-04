@@ -1,6 +1,7 @@
 {
   "name": "remote",
   "describe": "Internal root-only bootstrap protocol. Never installs disks.",
+  "author": null,
   "version": null,
   "aliases": [],
   "flag_options": [
@@ -57,6 +58,7 @@
     {
       "name": "prepare",
       "describe": "Prepare a retryable incoming upload (internal, target-side)",
+      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -165,6 +167,7 @@
     {
       "name": "finish",
       "describe": "Verify and commit a completed upload (internal, target-side)",
+      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [

@@ -1,6 +1,7 @@
 {
   "name": "audit-app",
   "describe": "Read-only GitHub App installation and scoped-token permission audit.",
+  "author": null,
   "version": null,
   "aliases": [],
   "flag_options": [
