@@ -1,0 +1,5 @@
+# Use `moss machine` for the public machine lifecycle
+
+The current `toolkit/deploy.sh` mixes operator actions, target-side polling, and private SSH protocol commands under one positional interface. We will expose machine lifecycle operations under `moss machine`, while retaining `toolkit/` as the internal implementation directory. `moss provision` would misname updates and recovery, and `moss toolkit` would expose implementation details as the product interface. We may break the existing operator CLI when this interface is introduced, but must migrate the Nix timer, consumer invocations and tests together. No command named `deploy` will ambiguously mean both erase-and-install and switch an existing machine.
+
+This decision does **not** turn issue #1's proposed storage, backup, VM or peer features into supported commands. The future hypervisor management service must verify signed, authorized, fresh typed operations; it must not execute user-provided CLI strings or expose a host shell to VMs. See [the proposed command contract](../moss-machine-cli.md) before implementing the migration.
