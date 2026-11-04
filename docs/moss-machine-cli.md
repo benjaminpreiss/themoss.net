@@ -1,6 +1,6 @@
 # Proposed `moss machine` command contract
 
-> **Design, not shipped commands.** The current interface remains `toolkit/deploy.sh`; this proposal is for its future public replacement. See [ADR 0001](adr/0001-public-machine-cli.md) and the [current deployment runbook](deployment.md).
+> **Design, not shipped commands.** The current interface remains `toolkit/deploy.sh`; this proposal is for its future public replacement. See [ADR 0001](adr/0001-public-machine-cli.md), the [CLI guideline findings](cli-guidelines-findings.md), and the [current deployment runbook](deployment.md).
 
 ## First release: existing machine lifecycle only
 
