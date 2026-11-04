@@ -39,21 +39,26 @@ For every command and argument, see the [generated Markdown command reference](c
 
 The public [`bin/moss`](../packages/cli/bin/moss) and private machine scripts in [`bin/machine/`](../packages/cli/bin/machine/) are **standalone argc builds**. They do not need argc at runtime, including when scripts are streamed to the target over SSH. Edit [`packages/cli/src/moss.sh`](../packages/cli/src/moss.sh) or [`packages/cli/src/machine/`](../packages/cli/src/machine/), never generated files. The unrelated [GitHub App audit](../packages/github-app-audit/) has its own source and generated executable. The positional machine protocol is strictly internal; public operators use only `moss machine`. No compatibility authoring wizard or legacy command tree is shipped. Private SSH commands are not web-app or operator commands. The package [`README.md`](../packages/cli/README.md) explains the `src/` → `bin/` build.
 
-Inside the [pinned operator shell](deployment.md#operator-environment):
+For operators, use the [pinned `.#operator` shell](deployment.md#operator-environment). It has the tools to run the committed executable, **not argc**:
 
 ```bash
+nix develop --no-write-lock-file .#operator
 bash packages/cli/bin/moss machine --help
-bash packages/cli/bin/moss machine plan --help
-argc --argc-export packages/cli/src/moss.sh > /private/moss-cli-spec.json
-# Optional: argc --argc-mangen packages/cli/src/moss.sh /private/man
-bash packages/cli/regenerate.sh # rebuild Bash, JSON specs, and Markdown reference
+bash tests/operator-smoke.sh
+```
+
+For contributors, use `.#dev`, which adds pinned argc to the same tools:
+
+```bash
+nix develop --no-write-lock-file .#dev
+bash packages/cli/regenerate.sh # rebuild Bash, JSON specs and Markdown reference
 bash tests/argc.sh
 bash tests/test.sh
 ```
 
-`--argc-export` produces JSON **from the same argc annotations as parsing and help**; [`render-cli-reference.sh`](../packages/cli/render-cli-reference.sh) turns the public `moss` JSON tree into Markdown. Both artifacts live in this repo and are checked for drift in the GitHub **Toolkit checks** job (`tests/consumer-commands.sh` runs `tests/argc.sh` inside the pinned operator shell). Use the JSON to inspect command names and positional parameters.
+The committed [JSON specs](cli-spec/) are produced from the assembled argc sources; [`render-cli-reference.sh`](../packages/cli/render-cli-reference.sh) turns the public `moss` spec into Markdown. Both artifacts are checked for drift in the GitHub **Toolkit checks** job (`tests/consumer-commands.sh` runs `tests/argc.sh` in `.#dev`). Use the JSON to inspect command names and positional parameters.
 
-**Contributors:** opt into the plain Bash pre-commit hook with `git config core.hooksPath .githooks` (Git stores this setting in the shared config of linked worktrees; enable it deliberately). The hook runs the pinned generation check and refuses to commit unstaged CLI source/generated changes. No npm or Node dependency is required. If it reports drift, use `nix develop --no-write-lock-file .#operator`, run `bash packages/cli/regenerate.sh`, and stage the updated scripts, JSON and Markdown.
+**Contributors:** opt into the plain Bash pre-commit hook with `git config core.hooksPath .githooks` (Git stores this setting in the shared config of linked worktrees; enable it deliberately). The hook runs the pinned generation check and refuses to commit unstaged CLI source/generated changes. No npm or Node dependency is required. If it reports drift, use `nix develop --no-write-lock-file .#dev`, run `bash packages/cli/regenerate.sh`, and stage the updated scripts, JSON and Markdown.
 
 The GitHub App cannot update `.github/workflows/`, so [updated CI](workflow-drafts/ci.yml), [audit](workflow-drafts/lock-updates.yml) and [generation](workflow-drafts/generate-cli-docs.yml) workflow files are staged under `docs/workflow-drafts/` for a maintainer with workflow-write access to install. The current `.github/workflows/generate-cli-docs` has **no `.yml`/`.yaml` extension**, so GitHub does not run it. Until the drafts are installed, the existing CI still references pre-restructure paths. Generated command docs describe the interface, not the private configuration or proof of safety; the executable gates and runbook remain authoritative. CI compares generated scripts byte-for-byte against the pinned argc version.
 

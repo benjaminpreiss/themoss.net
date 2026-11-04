@@ -3,7 +3,7 @@
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd -P)
 cd "$root"
-command -v argc >/dev/null || { echo 'argc required: nix develop --no-write-lock-file .#operator' >&2; exit 1; }
+command -v argc >/dev/null || { echo 'argc required: nix develop --no-write-lock-file .#dev' >&2; exit 1; }
 mkdir -p docs/cli-spec/machine/bootstrap
 tmp=$(mktemp -d "$root/.cli-gen.XXXXXXXX")
 trap 'rm -rf -- "$tmp"' EXIT

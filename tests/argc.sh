@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Run in the pinned operator shell: nix develop --no-write-lock-file .#operator --command bash tests/argc.sh
+# Run in the pinned dev shell: nix develop --no-write-lock-file .#dev --command bash tests/argc.sh
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd -P)
 cd "$root"
-command -v argc >/dev/null || { echo 'argc required (use the pinned operator shell)' >&2; exit 1; }
+command -v argc >/dev/null || { echo 'argc required (use the pinned dev shell)' >&2; exit 1; }
 tmp=$(mktemp -d "$root/.test-argc.XXXXXXXX"); trap 'rm -rf "$tmp"' EXIT
 mkdir "$tmp/specs"
 bash packages/cli/assemble.sh packages/cli/src/moss.sh "$tmp/moss.sh"

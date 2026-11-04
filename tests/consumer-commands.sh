@@ -24,7 +24,7 @@ git -C "$tmp" add flake.nix packages/cli/src/machine/update.nix packages/cli/bin
 )
 # CI exercises the pinned Linux operator environment without a target or disk.
 nix develop --no-write-lock-file "$root#operator" --command bash -n "$root/packages/cli/bin/machine/deploy.sh" "$root/packages/cli/bin/machine/bootstrap/remote.sh"
-# CI verifies generated standalone scripts, JSON specs and Markdown in this step.
-nix develop --no-write-lock-file "$root#operator" --command bash "$root/tests/argc.sh"
+# CI uses the contributor shell for generation checks; operators need no argc.
+nix develop --no-write-lock-file "$root#dev" --command bash "$root/tests/argc.sh"
 nix develop --no-write-lock-file "$root#operator" --command bash "$root/tests/operator-smoke.sh"
 echo 'Synthetic consumer update/build and operator environment passed'
