@@ -56,16 +56,16 @@ The configuration is operator-owned data, not a shell script or a copy of the Ni
 # Reads the verified rescue target, selects a whole disk, stages and builds
 # the exact pushed revision, runs the consumer evaluated check, and publishes
 # a mode-600 install plan. No disk operation is executed.
-bash packages/cli/moss.sh machine plan root@HOST \
+bash packages/cli/bin/moss machine plan root@HOST \
   --config /private/machine.json --disk /dev/vda --output /private/install-plan.json
 
 # Rechecks the inputs, branch tip and live hardware. You must type ERASE
 # /dev/vda before it rechecks again and runs the disk installer.
-bash packages/cli/moss.sh machine apply /private/install-plan.json
+bash packages/cli/bin/moss machine apply /private/install-plan.json
 
 # Verify the NEW installed SSH host key via the provider console first.
 # A receipt exists only after the installer succeeds; bootstrap never erases.
-bash packages/cli/moss.sh machine bootstrap /private/install-receipt.json \
+bash packages/cli/bin/moss machine bootstrap /private/install-receipt.json \
   --config /private/machine.json
 ```
 
@@ -90,7 +90,7 @@ Only values and consumer-owned policy vary; no app-specific keys are accepted. O
 The public plan/apply CLI deliberately refuses selector/branch transitions. Existing consumers may use the pinned internal toolkit interface after reviewing a candidate. Add `"newMachine": "/private/reviewed-machine"` and `"candidateBranch": "reviewed-branch"` to the *legacy* private manifest, then run:
 
 ```bash
-bash packages/cli/internal/deploy.sh manifest transition /private/operator.json
+bash packages/cli/bin/machine/deploy.sh manifest transition /private/operator.json
 ```
 
 The receipt binds the original target, origin, baseline revision/branch and machine hashes. **Keep the baseline fields unchanged; review the candidate branch and new machine file separately.** If output or remote paths need to change, treat that as a separate operator review, not a silent manifest edit. Do not edit the baseline to paper over a mismatch. Transition does not partition disks. Target-side `poll` and `deploy` continue using root-owned selector/revision and positional commands; the operator manifest is never copied to the host.
@@ -102,8 +102,8 @@ The receipt binds the original target, origin, baseline revision/branch and mach
 For complete argument descriptions, see the [generated command reference](cli-reference.md). The equivalent legacy install and bootstrap invocations are:
 
 ```bash
-bash packages/cli/internal/deploy.sh install RECORD REPO FULL_COMMIT MACHINE_DIR HOST_OUTPUT PUSHED_BRANCH RECEIPT [REPORT_GENERATOR|- [RECOVERY_DIR|- [PRE_ERASE_CHECK|-]]]
-bash packages/cli/internal/deploy.sh bootstrap RECEIPT REPO MACHINE_DIR REMOTE_CHECKOUT REMOTE_MACHINE REMOTE_STATE
+bash packages/cli/bin/machine/deploy.sh install RECORD REPO FULL_COMMIT MACHINE_DIR HOST_OUTPUT PUSHED_BRANCH RECEIPT [REPORT_GENERATOR|- [RECOVERY_DIR|- [PRE_ERASE_CHECK|-]]]
+bash packages/cli/bin/machine/deploy.sh bootstrap RECEIPT REPO MACHINE_DIR REMOTE_CHECKOUT REMOTE_MACHINE REMOTE_STATE
 ```
 
 Use `-` to skip earlier optional positional arguments. The same staged build, pre-erase check, confirmation, receipt and retry safeguards apply.
@@ -127,7 +127,7 @@ Use `-` to skip earlier optional positional arguments. The same staged build, pr
 3. **Verify the SSH key**, then run:
 
    ```bash
-   bash packages/cli/internal/deploy.sh adopt /private/evidence.json /path/to/consumer /private/machine HOST_OUTPUT /root/consumer /root/private-machine /var/lib/themoss
+   bash packages/cli/bin/machine/deploy.sh adopt /private/evidence.json /path/to/consumer /private/machine HOST_OUTPUT /root/consumer /root/private-machine /var/lib/themoss
    ```
 
 `adopt` compares a build of the pinned output with **both** the evidence and the running host, then bootstraps root-only state. It **cannot prove historical inputs** without your independent records.

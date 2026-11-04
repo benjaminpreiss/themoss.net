@@ -2,15 +2,15 @@
 
 > Generated from the argc JSON spec. For destructive-operation safeguards and recovery, follow the [deployment runbook](deployment.md), not this command list.
 
-## `bash packages/cli/moss.sh`
+## `bash packages/cli/bin/moss`
 
 Plan and apply reviewed changes to a themoss machine
 
-### `bash packages/cli/moss.sh machine`
+### `bash packages/cli/bin/moss machine`
 
 Operate on a machine
 
-#### `bash packages/cli/moss.sh machine plan`
+#### `bash packages/cli/bin/moss machine plan`
 
 Inspect the target and build a non-destructive reviewed installation plan
 
@@ -18,7 +18,7 @@ Inspect the target and build a non-destructive reviewed installation plan
 | --- | --- | --- |
 | `TARGET` | yes | Known rescue SSH target (verify host key independently) |
 
-#### `bash packages/cli/moss.sh machine apply`
+#### `bash packages/cli/bin/moss machine apply`
 
 Revalidate and apply a reviewed plan; installation erases the selected disk
 
@@ -26,7 +26,7 @@ Revalidate and apply a reviewed plan; installation erases the selected disk
 | --- | --- | --- |
 | `PLAN` | yes | Private typed plan produced by machine plan |
 
-#### `bash packages/cli/moss.sh machine bootstrap`
+#### `bash packages/cli/bin/moss machine bootstrap`
 
 Resume first-boot handoff after independently verifying the new SSH host key
 

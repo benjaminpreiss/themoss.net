@@ -48,7 +48,7 @@ cat >"$tmp/bin/nixos-anywhere" <<'EOF'
 echo "ERASE $*" >>"$MOCK_LOG"
 EOF
 chmod +x "$tmp/bin/"*
-cli="$root/packages/cli/internal/deploy.sh"
+cli="$root/packages/cli/bin/machine/deploy.sh"
 bash "$cli" discover root@example /dev/vda "$tmp/record"
 bash "$cli" preflight "$tmp/record"
 for key in arch boot nic mac disk; do
@@ -72,11 +72,11 @@ printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$firs
 git -C "$tmp/repo" push -q origin HEAD:main
 # Exercise the interactive authoring flow through a synthetic terminal when available.
 printf '%s\n\n/dev/vda\n%s\n\nmain\ntest\n%s\n\n\n\n\n\n\n\n' "$tmp/record" "$tmp/repo" "$tmp/machine" | \
-  THEMOSS_TEST_INPUT=1 bash "$root/packages/cli/internal/new-operator-manifest.sh" "$tmp/authored.json" >/dev/null
+  THEMOSS_TEST_INPUT=1 bash "$root/packages/cli/bin/machine/new-operator-manifest.sh" "$tmp/authored.json" >/dev/null
 [[ $(stat -c %a "$tmp/authored.json") == 600 ]]
 jq -e --arg rev "$first" '.disk == "/dev/vda" and .revision == $rev and .output == "test"' "$tmp/authored.json" >/dev/null
 bash "$cli" manifest plan "$tmp/authored.json" >/dev/null
-! bash "$root/packages/cli/internal/new-operator-manifest.sh" "$tmp/authored.json" </dev/null >/dev/null 2>&1
+! bash "$root/packages/cli/bin/machine/new-operator-manifest.sh" "$tmp/authored.json" </dev/null >/dev/null 2>&1
 # Two synthetic consumer policies share the manifest schema, not application fields.
 for consumer in relay agentic; do
   manifest="$tmp/$consumer.json"
@@ -292,15 +292,15 @@ adopt >/dev/null 2>&1 && { echo 'adopt replaced conflicting revision' >&2; exit 
 ! grep -q ERASE "$tmp/log"
 # Both consumer policies parse, and the candidate relay's timer starts disabled.
 if command -v nix-instantiate >/dev/null; then
-  for file in "$root"/examples/*.nix "$root"/packages/cli/internal/update.nix; do nix-instantiate --parse "$file" >/dev/null; done
+  for file in "$root"/examples/*.nix "$root"/packages/cli/src/machine/update.nix; do nix-instantiate --parse "$file" >/dev/null; done
 fi
 ! grep -q 'timer = false' "$root/examples/agentic.nix"
 ! grep -q 'timer = false' "$root/examples/thepeer.nix"
-! grep -q 'update --repo' "$root/packages/cli/internal/update.nix" || { echo 'module/CLI argument mismatch' >&2; exit 1; }
+! grep -q 'update --repo' "$root/packages/cli/src/machine/update.nix" || { echo 'module/CLI argument mismatch' >&2; exit 1; }
 # Public CLI: the private configuration declares source/policy once; plan
 # captures live facts and evaluates before publishing. Applying repeats all
 # time-sensitive checks and never treats the plan as erase authorization.
-public_cli="$root/packages/cli/moss.sh"
+public_cli="$root/packages/cli/bin/moss"
 config="$tmp/public-config.json"
 plan="$tmp/public-plan.json"
 public_receipt="$tmp/public-receipt.json"

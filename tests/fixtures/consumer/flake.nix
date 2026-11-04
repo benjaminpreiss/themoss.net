@@ -15,7 +15,7 @@
       nixosConfigurations.agentic = nixpkgs.lib.nixosSystem {
         inherit system;
         modules = [
-          ./update.nix
+          ./packages/cli/src/machine/update.nix
           ({ ... }: {
             system.stateVersion = "25.05";
             boot.loader.grub.enable = true;

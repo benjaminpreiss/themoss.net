@@ -9,7 +9,7 @@
           packages = with pkgs; [ bash git jq openssh nix nixos-anywhere coreutils gnutar findutils argc ];
         };
     in {
-      nixosModules.update = import ./packages/cli/internal/update.nix;
+      nixosModules.update = import ./packages/cli/src/machine/update.nix;
       devShells.x86_64-linux.operator = forOperator "x86_64-linux";
       devShells.aarch64-linux.operator = forOperator "aarch64-linux";
       devShells.x86_64-darwin.operator = forOperator "x86_64-darwin";

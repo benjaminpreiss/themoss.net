@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Operator interface. internal/ is not a public namespace.
+# Operator interface. bin/machine/ is private implementation, not a public namespace.
 # Keep off-host configuration and plans out of the Nix store.
 # @describe Plan and apply reviewed changes to a themoss machine
 set -euo pipefail
 umask 077
 fail() { echo "moss: $*" >&2; exit 1; }
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
-while [[ $root != / && ! -f $root/internal/deploy.sh ]]; do root=$(dirname "$root"); done
-[[ -f $root/internal/deploy.sh ]] || fail 'the pinned CLI implementation is missing'
-deploy=$root/internal/deploy.sh
+while [[ $root != / && ! -f $root/bin/machine/deploy.sh ]]; do root=$(dirname "$root"); done
+[[ -f $root/bin/machine/deploy.sh ]] || fail 'the pinned CLI implementation is missing'
+deploy=$root/bin/machine/deploy.sh
 private_file() {
   [[ $1 == /* && $1 != *..* && -f $1 && ! -L $1 && $(stat -c %a "$1") == 600 ]] || fail "expected absolute mode-600 private file: $1"
   [[ $(realpath -m "$1") == "$(realpath "$1")" ]] || fail 'linked private path'

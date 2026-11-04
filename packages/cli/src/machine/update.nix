@@ -17,7 +17,7 @@ in {
       serviceConfig = {
         Type = "oneshot";
         User = "root";
-        ExecStart = "${pkgs.bash}/bin/bash ${./deploy.sh} poll ${lib.escapeShellArg cfg.repository} ${lib.escapeShellArg cfg.machine} ${lib.escapeShellArg cfg.host} ${lib.escapeShellArg cfg.state}";
+        ExecStart = "${pkgs.bash}/bin/bash ${../../bin/machine/deploy.sh} poll ${lib.escapeShellArg cfg.repository} ${lib.escapeShellArg cfg.machine} ${lib.escapeShellArg cfg.host} ${lib.escapeShellArg cfg.state}";
       };
     };
     systemd.timers.themoss-update = {

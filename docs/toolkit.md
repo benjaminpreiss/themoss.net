@@ -37,15 +37,15 @@ The Git checkout and root-only selector/revision state live outside the Nix stor
 
 For every command and argument, see the [generated Markdown command reference](cli-reference.md). The equivalent [JSON command specs](cli-spec/) are committed alongside it. Keep the runbooks for **review decisions and failure recovery**—a command schema cannot establish those safeguards.
 
-The public `moss.sh` and the four internal scripts (`deploy.sh`, `bootstrap-remote.sh`, `audit-app.sh`, `new-operator-manifest.sh`) are **standalone argc builds** in [`packages/cli/`](../packages/cli/). They do **not** need argc at runtime, including when internal scripts are streamed to the target over SSH. Edit [`packages/cli/source/moss.sh`](../packages/cli/source/moss.sh) or [`packages/cli/internal/source/`](../packages/cli/internal/source/), never generated scripts. The legacy positional interface remains internal for pinned consumers; public operators use only `moss machine`. The internal SSH commands are not web-app or operator commands.
+The public [`bin/moss`](../packages/cli/bin/moss) and private machine scripts in [`bin/machine/`](../packages/cli/bin/machine/) are **standalone argc builds**. They do not need argc at runtime, including when scripts are streamed to the target over SSH. Edit [`packages/cli/src/moss.sh`](../packages/cli/src/moss.sh) or [`packages/cli/src/machine/`](../packages/cli/src/machine/), never generated files. The unrelated [GitHub App audit](../packages/github-app-audit/) has its own source and generated executable. The legacy positional machine interface remains internal for pinned consumers; public operators use only `moss machine`. Private SSH commands are not web-app or operator commands. The package [`README.md`](../packages/cli/README.md) explains the `src/` → `bin/` build.
 
 Inside the [pinned operator shell](deployment.md#operator-environment):
 
 ```bash
-bash packages/cli/moss.sh machine --help
-bash packages/cli/moss.sh machine plan --help
-argc --argc-export packages/cli/source/moss.sh > /private/moss-cli-spec.json
-# Optional: argc --argc-mangen packages/cli/source/moss.sh /private/man
+bash packages/cli/bin/moss machine --help
+bash packages/cli/bin/moss machine plan --help
+argc --argc-export packages/cli/src/moss.sh > /private/moss-cli-spec.json
+# Optional: argc --argc-mangen packages/cli/src/moss.sh /private/man
 bash packages/cli/regenerate.sh # rebuild Bash, JSON specs, and Markdown reference
 bash tests/argc.sh
 bash tests/test.sh
@@ -55,7 +55,7 @@ bash tests/test.sh
 
 **Contributors:** opt into the plain Bash pre-commit hook with `git config core.hooksPath .githooks` (Git stores this setting in the shared config of linked worktrees; enable it deliberately). The hook runs the pinned generation check and refuses to commit unstaged CLI source/generated changes. No npm or Node dependency is required. If it reports drift, use `nix develop --no-write-lock-file .#operator`, run `bash packages/cli/regenerate.sh`, and stage the updated scripts, JSON and Markdown.
 
-The [regeneration workflow draft](workflow-drafts/generate-cli-docs.yml) would rebuild and commit changed standalone scripts, JSON specs and Markdown on same-repository non-`main` pushes. **It is not active yet:** our GitHub App cannot write `.github/workflows/` (the remote rejected the push and Contents API request). A maintainer with workflow-write access must move this draft to `.github/workflows/generate-cli-docs.yml`. Until then, the existing Toolkit checks job rejects stale artifacts and contributors run `bash packages/cli/regenerate.sh` themselves. It describes the *command interface*, not the contents of private machine configuration or a proof that a command is safe: those validations remain in the toolkit's executable gates. CI checks regenerated scripts byte-for-byte against the pinned argc version. Regenerate inside the operator shell rather than using an unrelated argc release.
+The GitHub App cannot update `.github/workflows/`, so [updated CI](workflow-drafts/ci.yml), [audit](workflow-drafts/lock-updates.yml) and [generation](workflow-drafts/generate-cli-docs.yml) workflow files are staged under `docs/workflow-drafts/` for a maintainer with workflow-write access to install. The current `.github/workflows/generate-cli-docs` has **no `.yml`/`.yaml` extension**, so GitHub does not run it. Until the drafts are installed, the existing CI still references pre-restructure paths. Generated command docs describe the interface, not the private configuration or proof of safety; the executable gates and runbook remain authoritative. CI compares generated scripts byte-for-byte against the pinned argc version.
 
 ## Choose your next step
 

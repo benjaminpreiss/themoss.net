@@ -42,7 +42,7 @@ case $url in
 esac
 EOF
 chmod +x "$tmp/bin/curl"
-check() { bash "$root/packages/cli/internal/audit-app.sh" 123 "$tmp/key.pem" "$tmp/policy.json" owner/agentic; }
+check() { bash "$root/packages/github-app-audit/bin/audit-app.sh" 123 "$tmp/key.pem" "$tmp/policy.json" owner/agentic; }
 check
 AUDIT_SCENARIO=shared-installation check # extra repo membership does not fail a caller-scoped audit
 AUDIT_SCENARIO=app-drift check # global App grants can differ outside this installation
