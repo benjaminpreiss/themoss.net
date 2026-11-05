@@ -15,17 +15,19 @@ configure_optional() {
   CONFIG_ANSWER=$answer
 }
 configure_for_plan() {
-  local file=$1 target=$2 requested_disk=$3 base repo rev branch host machine receipt checkout remote_machine state generator recovery check tmp answer tip disks count disk selection
+  local file=$1 target=$2 requested_disk=$3 base repo default_repo='' workspace rev branch host machine receipt checkout remote_machine state generator recovery check tmp answer tip disks count disk selection
   [[ -t 0 || ${MOSS_TEST_INPUT:-} == 1 ]] || fail 'without --config, plan requires an interactive terminal'
   [[ $file == /* && $file != *..* && ! -e $file && ! -L $file ]] || fail 'choose a new absolute off-host configuration path or pass --config'
   base=$(dirname "$file")
   [[ -d $base && ! -L $base ]] || fail 'configuration directory missing or linked'
   printf 'Create %s (mode 600, off-host). No disk action occurs while answering.\n' "$file" >&2
   printf 'Do not enter secrets: machine.nix and facter.json may enter the Nix store.\n' >&2
-  configure_ask 'Consumer Git checkout (absolute path)' "$(moss_repo_root)"; repo=$CONFIG_ANSWER
+  workspace=$(moss_repo_root)
+  if git rev-parse --show-toplevel >/dev/null 2>&1; then default_repo=$workspace; fi
+  configure_ask 'Consumer Git checkout (absolute path)' "$default_repo"; repo=$CONFIG_ANSWER
   [[ $repo == /* && -d $repo && ! -L $repo ]] || fail 'invalid consumer checkout'
-  if [[ $file == "$(moss_repo_root)/.moss/"* ]]; then
-    [[ $repo == "$(moss_repo_root)" ]] || fail '.moss configuration must belong to this Git checkout'
+  if [[ -n $default_repo && $file == "$workspace/.moss/"* ]]; then
+    [[ $repo == "$workspace" ]] || fail '.moss configuration must belong to this Git checkout'
   fi
   rev=$(git -C "$repo" rev-parse --verify HEAD) || fail 'consumer checkout has no commit'
   configure_ask 'Full pushed commit' "$rev"; rev=$CONFIG_ANSWER
@@ -96,5 +98,5 @@ configure_for_plan() {
   rm -f -- "$tmp"
   trap - EXIT
   printf 'Created %s (mode 600); plan will now re-probe the selected target.\n' "$file" >&2
-  printf 'Keep .moss/ in .gitignore; do not commit operator-local plans, configuration or receipts.\n' >&2
+  printf 'Do not commit operator-local plans, configuration or receipts.\n' >&2
 }

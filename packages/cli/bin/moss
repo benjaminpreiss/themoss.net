@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Operator interface. bin/machine/ is private implementation, not a public namespace.
 # Keep off-host configuration and plans out of the Nix store.
-# @describe Plan and apply reviewed changes to a themoss machine
+# @describe Initialize local storage and plan reviewed changes to a themoss machine
 set -euo pipefail
 umask 077
 fail() { echo "moss: $*" >&2; exit 1; }
@@ -12,6 +12,7 @@ deploy=$root/bin/machine/deploy.sh
 private_file() {
   [[ $1 == /* && $1 != *..* && -f $1 && ! -L $1 && $(stat -c %a "$1") == 600 ]] || fail "expected absolute mode-600 private file: $1"
   [[ $(realpath -m "$1") == "$(realpath "$1")" ]] || fail 'linked private path'
+  moss_private_path "$1"
 }
 config_file() {
   private_file "$1"
@@ -22,17 +23,17 @@ config_file() {
     ([.reportGenerator // "-",.recoveryDir // "-",.preEraseCheck // "-"] | all(type == "string" and length > 0)) and
     (if has("disk") then (.disk | type == "string" and test("^/dev/[A-Za-z0-9_./-]+$") and (contains("..") | not)) else true end)
   ' "$1" >/dev/null || fail 'invalid private machine configuration'
-  local repo path relative machine
+  local repo machine receipt recovery
   repo=$(jq -r .repo "$1") machine=$(jq -r .machine "$1")
   [[ $repo == /* && -d $repo && ! -L $repo && $(realpath -m "$repo") == "$(realpath "$repo")" ]] || fail 'invalid checkout'
   [[ $machine == /* && $machine != *..* && -d $machine && ! -L $machine && -f $machine/machine.nix && ! -L $machine/machine.nix && $(stat -c %a "$machine/machine.nix") == 600 ]] || fail 'unsafe private machine input'
   [[ $(realpath -m "$machine") == "$(realpath "$machine")" ]] || fail 'linked private machine path'
-  path=$(realpath "$1")
-  if [[ $path == "$repo/"* ]]; then
-    relative=${path#"$repo/"}
-    git -C "$repo" check-ignore -q -- "$relative" || fail 'private configuration in checkout must be Git-ignored'
-    [[ -z $(git -C "$repo" ls-files -- "$relative") ]] || fail 'tracked private configuration'
-  fi
+  moss_private_path "$machine/machine.nix"
+  moss_private_path "$machine/facter.json"
+  receipt=$(jq -r .receipt "$1")
+  moss_private_path "$receipt"
+  recovery=$(jq -r '.recoveryDir // ""' "$1")
+  if [[ -n $recovery ]]; then moss_private_dir "$recovery"; fi
 }
 # Never evaluate operator JSON as shell. This is a private adapter to the
 # existing strict toolkit validator; the generated inputs is ephemeral.
@@ -51,23 +52,58 @@ remote_call() {
 # @cmd Operate on a machine
 machine() { :; }
 
-# Operator-local defaults. The Git root, not $HOME or the current subdirectory,
-# owns .moss. The caller can always pass explicit paths instead.
+# Operator-local defaults. Inside Git, use the worktree root; elsewhere use
+# the current directory. Neither case stores machine data in $HOME or the store.
 moss_repo_root() {
   local root
-  root=$(git rev-parse --show-toplevel 2>/dev/null) || fail 'run from the consumer Git checkout or pass explicit paths'
-  [[ -d $root && ! -L $root ]] || fail 'unsafe consumer Git checkout'
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$(pwd -P)
+  [[ -d $root && ! -L $root ]] || fail 'unsafe operator directory'
   realpath "$root"
+}
+moss_check_workspace() {
+  local root=$1
+  [[ ! -L $root/.moss ]] || fail 'linked .moss directory'
+  [[ ! -e $root/.moss ]] && return 0
+  [[ -d $root/.moss && $(stat -c %a "$root/.moss") == 700 ]] || fail '.moss must be a mode-700 directory'
+  if git -C "$root" rev-parse --show-toplevel >/dev/null 2>&1; then
+    [[ -z $(git -C "$root" ls-files -- .moss) ]] || fail 'tracked .moss files; remove them from Git'
+    git -C "$root" check-ignore -q --no-index -- .moss/ || fail "add .moss/ to $root/.gitignore and commit the rule before planning"
+  fi
 }
 moss_store() {
   local root
   root=$(moss_repo_root) || return
-  [[ -z $(git -C "$root" ls-files -- .moss) ]] || fail 'tracked .moss files; remove them from Git before planning'
-  if ! git -C "$root" check-ignore -q --no-index -- .moss/; then
-    fail "add .moss/ to $root/.gitignore (and commit that change) before using default storage"
-  fi
-  [[ ! -L $root/.moss ]] || fail 'linked .moss directory'
+  moss_check_workspace "$root"
+  [[ -d $root/.moss ]] || fail "run 'moss init' in $root before planning"
   printf '%s/.moss\n' "$root"
+}
+# Check every operator-owned path, including explicit overrides outside .moss.
+# Consumer Git sources and executable hooks are not operator state.
+moss_private_path() {
+  local path=$1 parent repo relative workspace
+  workspace=$(moss_repo_root) || return
+  moss_check_workspace "$workspace"
+  [[ $path == /* && $path != *..* ]] || fail "expected absolute operator file path: $path"
+  parent=$(dirname "$path")
+  [[ -d $parent && ! -L $parent && ! -L $path && $(realpath -m "$parent") == "$(realpath "$parent")" ]] || fail "unsafe operator file path: $path"
+  repo=$(git -C "$parent" rev-parse --show-toplevel 2>/dev/null) || return 0
+  moss_check_workspace "$repo"
+  [[ $path == "$repo/"* ]] || fail 'operator path outside detected Git root'
+  relative=${path#"$repo/"}
+  [[ -z $(git -C "$repo" ls-files -- "$relative") ]] || fail "tracked operator file: $path"
+  git -C "$repo" check-ignore -q --no-index -- "$relative" || fail "operator file must be Git-ignored: $path"
+}
+moss_private_dir() {
+  local dir=$1 repo relative workspace
+  workspace=$(moss_repo_root) || return
+  moss_check_workspace "$workspace"
+  [[ $dir == /* && $dir != *..* && -d $dir && ! -L $dir && $(realpath -m "$dir") == "$(realpath "$dir")" ]] || fail "unsafe operator directory: $dir"
+  repo=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || return 0
+  moss_check_workspace "$repo"
+  [[ $dir == "$repo/"* ]] || fail 'operator directory outside detected Git root'
+  relative=${dir#"$repo/"}
+  [[ -z $(git -C "$repo" ls-files -- "$relative") ]] || fail "tracked operator directory: $dir"
+  git -C "$repo" check-ignore -q --no-index -- "$relative/" || fail "operator directory must be Git-ignored: $dir"
 }
 moss_target_store() {
   local target=$1
@@ -119,6 +155,24 @@ moss_latest_plan() {
   [[ $(jq -er .target "$plan") == "$(basename "$dir")" ]] || fail 'latest plan target differs from directory'
   printf '%s\n' "$plan"
 }
+# @cmd Create operator-local .moss in the current directory or Git ancestor
+init() {
+  local workspace store
+  workspace=$(moss_repo_root) || return
+  store=$workspace/.moss
+  [[ ! -L $store ]] || fail 'refusing linked .moss directory'
+  if [[ ! -e $store ]]; then mkdir -m 700 -- "$store"; fi
+  [[ -d $store && $(stat -c %a "$store") == 700 ]] || fail '.moss must be a mode-700 directory'
+  printf 'Initialized %s (operator-local; no configuration, plan or installer run).\n' "$store"
+  if git -C "$workspace" rev-parse --show-toplevel >/dev/null 2>&1; then
+    [[ -z $(git -C "$workspace" ls-files -- .moss) ]] || fail 'remove tracked .moss files from Git before using moss'
+    if ! git -C "$workspace" check-ignore -q --no-index -- .moss/; then
+      printf 'Before planning, add .moss/ to %s/.gitignore and commit the ignore rule.\n' "$workspace" >&2
+    fi
+  else
+    printf 'Not in a Git checkout. If this directory later enters Git, ignore .moss/ before using moss.\n' >&2
+  fi
+}
 # Private guided authoring for a new off-host desired configuration. The
 # public command remains `plan`; selection is a proposal, never erase consent.
 configure_ask() {
@@ -136,17 +190,19 @@ configure_optional() {
   CONFIG_ANSWER=$answer
 }
 configure_for_plan() {
-  local file=$1 target=$2 requested_disk=$3 base repo rev branch host machine receipt checkout remote_machine state generator recovery check tmp answer tip disks count disk selection
+  local file=$1 target=$2 requested_disk=$3 base repo default_repo='' workspace rev branch host machine receipt checkout remote_machine state generator recovery check tmp answer tip disks count disk selection
   [[ -t 0 || ${MOSS_TEST_INPUT:-} == 1 ]] || fail 'without --config, plan requires an interactive terminal'
   [[ $file == /* && $file != *..* && ! -e $file && ! -L $file ]] || fail 'choose a new absolute off-host configuration path or pass --config'
   base=$(dirname "$file")
   [[ -d $base && ! -L $base ]] || fail 'configuration directory missing or linked'
   printf 'Create %s (mode 600, off-host). No disk action occurs while answering.\n' "$file" >&2
   printf 'Do not enter secrets: machine.nix and facter.json may enter the Nix store.\n' >&2
-  configure_ask 'Consumer Git checkout (absolute path)' "$(moss_repo_root)"; repo=$CONFIG_ANSWER
+  workspace=$(moss_repo_root)
+  if git rev-parse --show-toplevel >/dev/null 2>&1; then default_repo=$workspace; fi
+  configure_ask 'Consumer Git checkout (absolute path)' "$default_repo"; repo=$CONFIG_ANSWER
   [[ $repo == /* && -d $repo && ! -L $repo ]] || fail 'invalid consumer checkout'
-  if [[ $file == "$(moss_repo_root)/.moss/"* ]]; then
-    [[ $repo == "$(moss_repo_root)" ]] || fail '.moss configuration must belong to this Git checkout'
+  if [[ -n $default_repo && $file == "$workspace/.moss/"* ]]; then
+    [[ $repo == "$workspace" ]] || fail '.moss configuration must belong to this Git checkout'
   fi
   rev=$(git -C "$repo" rev-parse --verify HEAD) || fail 'consumer checkout has no commit'
   configure_ask 'Full pushed commit' "$rev"; rev=$CONFIG_ANSWER
@@ -217,7 +273,7 @@ configure_for_plan() {
   rm -f -- "$tmp"
   trap - EXIT
   printf 'Created %s (mode 600); plan will now re-probe the selected target.\n' "$file" >&2
-  printf 'Keep .moss/ in .gitignore; do not commit operator-local plans, configuration or receipts.\n' >&2
+  printf 'Do not commit operator-local plans, configuration or receipts.\n' >&2
 }
 # @cmd Inspect the target and build a non-destructive reviewed installation plan
 # @arg target! <ROOT@HOST> Known rescue SSH target (verify host key independently)
@@ -234,12 +290,13 @@ machine::plan() {
     if [[ -z $output ]]; then output=$(moss_new_plan_path "$store"); fi
   fi
   [[ $output == /* && $output != *..* && ! -e $output && ! -L $output && -d $(dirname "$output") && ! -L $(dirname "$output") ]] || fail 'choose a new absolute private plan path'
+  moss_private_path "$output"
   if [[ ! -e $config && ! -L $config && -z ${argc_config:-} ]]; then
     configure_for_plan "$config" "$target" "$disk"
     disk=$CONFIG_DISK
   fi
   config_file "$config"
-  if [[ -n $store ]]; then
+  if [[ -n $store ]] && git rev-parse --show-toplevel >/dev/null 2>&1; then
     [[ $(jq -r .repo "$config") == "$(moss_repo_root)" ]] || fail 'default .moss storage must belong to the consumer checkout'
   fi
   local tmp record inputs repo rev machine host branch generator check sha facter origin receipt checkout remote_machine state expected config_disk
@@ -415,12 +472,13 @@ _argc_run() {
 
 _argc_usage() {
     cat <<-'EOF'
-Plan and apply reviewed changes to a themoss machine
+Initialize local storage and plan reviewed changes to a themoss machine
 
 USAGE: moss <COMMAND>
 
 COMMANDS:
   machine  Operate on a machine
+  init     Create operator-local .moss in the current directory or Git ancestor
 EOF
     exit
 }
@@ -432,7 +490,7 @@ _argc_version() {
 
 _argc_parse() {
     local _argc_key _argc_action
-    local _argc_subcmds="machine"
+    local _argc_subcmds="machine, init"
     while [[ $_argc_index -lt $_argc_len ]]; do
         _argc_item="${argc__args[_argc_index]}"
         _argc_key="${_argc_item%%=*}"
@@ -454,11 +512,19 @@ _argc_parse() {
             _argc_action=_argc_parse_machine
             break
             ;;
+        init)
+            _argc_index=$((_argc_index + 1))
+            _argc_action=_argc_parse_init
+            break
+            ;;
         help)
             local help_arg="${argc__args[$((_argc_index + 1))]:-}"
             case "$help_arg" in
             machine)
                 _argc_usage_machine
+                ;;
+            init)
+                _argc_usage_init
                 ;;
             "")
                 _argc_usage
@@ -785,6 +851,47 @@ _argc_parse_machine_bootstrap() {
             argc_receipt="${argc__positionals[values_index]}"
         else
             _argc_die "error: the required environments \`<FILE>\` were not provided"
+        fi
+    fi
+}
+
+_argc_usage_init() {
+    cat <<-'EOF'
+Create operator-local .moss in the current directory or Git ancestor
+
+USAGE: moss init
+EOF
+    exit
+}
+
+_argc_parse_init() {
+    local _argc_key _argc_action
+    local _argc_subcmds=""
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage_init
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        *)
+            argc__positionals+=("$_argc_item")
+            _argc_index=$((_argc_index + 1))
+            ;;
+        esac
+    done
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        argc__fn=init
+        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
+            _argc_usage_init
         fi
     fi
 }

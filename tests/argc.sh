@@ -28,6 +28,7 @@ done
 jq -e '[.subcommands[].name] | index("install") and index("bootstrap") and index("inputs") and index("list-disks") and index("poll")' "$tmp/specs/deploy.json" >/dev/null
 jq -e '[.subcommands[] | select(.name == "inputs") | .subcommands[].name] | sort == ["apply","check"]' "$tmp/specs/deploy.json" >/dev/null
 jq -e '[.subcommands[].name] | sort == ["finish","prepare"]' "$tmp/specs/remote.json" >/dev/null
+jq -e '[.subcommands[].name] | sort == ["init","machine"]' "$tmp/specs/moss.json" >/dev/null
 jq -e '[.subcommands[] | select(.name == "machine") | .subcommands[].name] | sort == ["apply","bootstrap","plan"]' "$tmp/specs/moss.json" >/dev/null
 jq -e '[.subcommands[] | select(.name == "machine") | .subcommands[] | select(.name == "plan") | .flag_options[] | select(.long_name == "--config") | .required] == [false]' "$tmp/specs/moss.json" >/dev/null
 bash -n packages/cli/bin/moss "$tmp/moss.sh"

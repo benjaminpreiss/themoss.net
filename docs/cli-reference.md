@@ -4,7 +4,7 @@
 
 ## `moss`
 
-Plan and apply reviewed changes to a themoss machine
+Initialize local storage and plan reviewed changes to a themoss machine
 
 **Options**
 
@@ -52,3 +52,7 @@ Resume first-boot handoff after independently verifying the new SSH host key
 **Options**
 
 - **`--config <FILE>`** (optional) — Original private machine configuration; defaults to .moss for the receipt target
+
+### `moss init`
+
+Create operator-local .moss in the current directory or Git ancestor

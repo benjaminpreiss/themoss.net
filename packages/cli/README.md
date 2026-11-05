@@ -14,6 +14,6 @@ Ensure `~/.local/bin` is on your `PATH`, then try `moss machine plan --help`. Th
 
 ## Before operating a machine
 
-The [machine guide](src/machine/README.md#operator-environment) is the single source for runtime requirements, the `.moss/` ignore rule and safety checks. For command flags, see the [generated CLI reference](../../docs/cli-reference.md). The unrelated [GitHub App audit](../github-app-audit/README.md) is a separate package.
+Start with [`moss init`](src/init/README.md) to prepare operator-local storage, then follow the [machine guide](src/machine/README.md#operator-environment) for runtime requirements and safety checks. For command flags, see the [generated CLI reference](../../docs/cli-reference.md). The unrelated [GitHub App audit](../github-app-audit/README.md) is a separate package.
 
 **Contributing?** See [DEVELOP.md](DEVELOP.md) for the `src/` → `bin/` build, generated specs and checks.

@@ -1,6 +1,6 @@
 {
   "name": "moss",
-  "describe": "Plan and apply reviewed changes to a themoss machine",
+  "describe": "Initialize local storage and plan reviewed changes to a themoss machine",
   "version": null,
   "aliases": [],
   "flag_options": [
@@ -383,6 +383,41 @@
         }
       ],
       "command_fn": null
+    },
+    {
+      "name": "init",
+      "describe": "Create operator-local .moss in the current directory or Git ancestor",
+      "version": null,
+      "aliases": [],
+      "flag_options": [
+        {
+          "id": "help",
+          "long_name": "--help",
+          "short_name": "-h",
+          "describe": "",
+          "flag": true,
+          "notations": [],
+          "required": false,
+          "multiple_values": false,
+          "multiple_occurs": false,
+          "num_args": [
+            0,
+            0
+          ],
+          "delimiter": null,
+          "terminated": false,
+          "prefixed": false,
+          "assigned": false,
+          "default": null,
+          "choice": null,
+          "env": null,
+          "inherited": false
+        }
+      ],
+      "positionals": [],
+      "envs": [],
+      "subcommands": [],
+      "command_fn": "init"
     }
   ],
   "command_fn": null

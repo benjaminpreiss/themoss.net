@@ -13,12 +13,13 @@ machine::plan() {
     if [[ -z $output ]]; then output=$(moss_new_plan_path "$store"); fi
   fi
   [[ $output == /* && $output != *..* && ! -e $output && ! -L $output && -d $(dirname "$output") && ! -L $(dirname "$output") ]] || fail 'choose a new absolute private plan path'
+  moss_private_path "$output"
   if [[ ! -e $config && ! -L $config && -z ${argc_config:-} ]]; then
     configure_for_plan "$config" "$target" "$disk"
     disk=$CONFIG_DISK
   fi
   config_file "$config"
-  if [[ -n $store ]]; then
+  if [[ -n $store ]] && git rev-parse --show-toplevel >/dev/null 2>&1; then
     [[ $(jq -r .repo "$config") == "$(moss_repo_root)" ]] || fail 'default .moss storage must belong to the consumer checkout'
   fi
   local tmp record inputs repo rev machine host branch generator check sha facter origin receipt checkout remote_machine state expected config_disk

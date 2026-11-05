@@ -4,7 +4,7 @@
 
 ## Where files live
 
-From the consumer Git checkout (or a subdirectory), `moss machine plan root@HOST` uses:
+After [`moss init`](../../init/README.md), `moss machine plan root@HOST` uses the consumer Git root (or current directory outside Git):
 
 ```text
 .moss/root@HOST/
@@ -14,7 +14,7 @@ From the consumer Git checkout (or a subdirectory), `moss machine plan root@HOST
 └── install-receipt.json    # written only after a successful install
 ```
 
-- **Before first use:** Add `.moss/` to the consumer `.gitignore` and commit the ignore rule. The CLI refuses unignored or tracked `.moss/` files. Directories must be mode `0700`; config, plan and receipt JSON files must be mode `0600`. The `latest` symlink has no separate mode—it points at a mode-`0600` plan.
+- **Protection:** `moss init` creates the mode-`0700` directory; config, plan and receipt JSON files must be mode `0600`. The `latest` symlink has no separate mode—it points at a mode-`0600` plan. The CLI checks Git-ignore status for operator files inside any checkout, including explicit paths.
 - **One target at a time:** Each target has its own folder and `latest` symlink. `apply` uses it when the checkout has only one target with a plan; for several targets, use `apply --target root@HOST`. It never guesses from file modification times. Plans are never overwritten.
 - **Explicit paths:** `plan --config FILE` and `--output FILE` override defaults; `apply --plan FILE` (or a positional plan path) overrides `latest` without changing it. A custom output with the default config still updates that target's symlink. With *both* config and output paths, planning also works outside a Git checkout.
 

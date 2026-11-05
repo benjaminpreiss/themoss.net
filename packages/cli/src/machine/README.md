@@ -8,13 +8,14 @@ Plan and apply NixOS installs and updates from your **operator computer**, then 
 
 - **Tools:** `bash`, GNU coreutils, `git`, `jq`, SSH, Nix and `nixos-anywhere`. On Linux or macOS, use a reviewed toolkit checkout with flakes enabled and run `nix develop --no-write-lock-file .#operator` for the runtime tools (argc is only needed for development). macOS also needs a Linux Nix builder or VM; target-side updates require Linux.
 - **Dry run:** `bash tests/operator-smoke.sh` in the toolkit checkout exercises mocks, *not hardware*.
-- **Local files:** Run from the consumer Git checkout or a subdirectory. Add `.moss/` to its `.gitignore` and **commit the ignore rule before planning**; default storage refuses unignored files. Configuration, plans and receipts stay in `<git-root>/.moss/root@HOST/`, off the target and out of Git. [File layout and JSON properties](plan/README.md).
+- **Local files:** Run [`moss init`](../init/README.md) once from the consumer Git checkout (or a subdirectory). Configuration, plans and receipts default to `<git-root>/.moss/root@HOST/`, off the target. The CLI checks Git-ignore status for operator files, including explicit paths. [File layout and JSON properties](plan/README.md).
 - **Secrets:** Keep `machine.nix` and optional `facter.json` credential-free: Nix builds may expose them in the store. Keep SSH keys in a separate recovery tree; back up the off-host install receipt separately.
 
 ## Install a machine
 
 ### 1. Prepare the source and target
 
+- Initialize local storage with `moss init` before planning. It does not touch the target.
 - Push the **exact** consumer commit you intend to install. Prepare a mode-`0600`, credential-free `machine.nix` in a private directory you will name during setup. The consumer owns Disko, boot/network policy, credentials and evaluated checks; see [manual agentic](../../../../examples/agentic.nix) and [scheduled relay](../../../../examples/thepeer.nix).
 - Verify the **rescue SSH host key** independently through the provider console. Review which physical whole disks are attached to this host.
 

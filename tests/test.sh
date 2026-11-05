@@ -74,11 +74,19 @@ git -C "$tmp/repo" push -q origin HEAD:main
 # The public planner can guide an operator through creating private desired
 # configuration. One detected whole disk becomes a proposal, never erase consent.
 public="$root/packages/cli/bin/moss"
+git init -q --bare "$tmp/bare.git"
+(cd "$tmp/bare.git"; bash "$public" init >/dev/null)
+[[ -d $tmp/bare.git/.moss && $(stat -c %a "$tmp/bare.git/.moss") == 700 ]]
 git init -q "$tmp/unignored"
+(cd "$tmp/unignored"; bash "$public" init >"$tmp/init-note" 2>&1)
+[[ -d $tmp/unignored/.moss && $(stat -c %a "$tmp/unignored/.moss") == 700 ]]
+grep -q 'add .moss/' "$tmp/init-note"
 (cd "$tmp/unignored"; ! bash "$public" machine plan root@example </dev/null >/dev/null 2>&1)
-[[ ! -e $tmp/unignored/.moss ]]
+[[ ! -e $tmp/unignored/.moss/root@example ]]
 managed="$tmp/repo/.moss/root@example"
 # Defaults resolve from the Git ancestor, including when called in a subdirectory.
+(cd "$tmp/repo"; ! bash "$public" machine plan root@example </dev/null >/dev/null 2>&1)
+(cd "$tmp/repo"; bash "$public" init >/dev/null; bash "$public" init >/dev/null)
 (cd "$tmp/repo"; printf '%s\n' '' '' main test "$tmp/machine" '' '' '' '' '' '' '' y | \
   MOSS_TEST_INPUT=1 bash "$public" machine plan root@example >/dev/null)
 interactive_plan=$(readlink -- "$managed/latest")
@@ -86,6 +94,14 @@ interactive_plan=$(readlink -- "$managed/latest")
 [[ -L $managed/latest && $interactive_plan == "$managed/plans/"* && $(stat -c %a "$interactive_plan") == 600 ]]
 jq -e --arg repo "$tmp/repo" --arg rev "$first" --arg machine "$tmp/machine" \
   '.repo == $repo and .revision == $rev and .branch == "main" and .output == "test" and .machine == $machine and .disk == "/dev/vda"' "$managed/machine.json" >/dev/null
+cp "$managed/machine.json" "$tmp/unignored/operator.json"
+(cd "$tmp/unignored"; ! bash "$public" machine plan root@example --config "$managed/machine.json" --output "$tmp/rejected-plan.json" >/dev/null 2>&1)
+(cd "$tmp/repo"; ! bash "$public" machine plan root@example --config "$tmp/unignored/operator.json" --output "$tmp/rejected-plan.json" >/dev/null 2>&1)
+(cd "$tmp/repo"; ! bash "$public" machine plan root@example --output "$tmp/unignored/plan.json" >/dev/null 2>&1)
+jq --arg receipt "$tmp/unignored/install-receipt.json" '.receipt = $receipt' "$managed/machine.json" >"$tmp/altered-config.json"
+chmod 600 "$tmp/altered-config.json"
+(cd "$tmp/repo"; ! bash "$public" machine plan root@example --config "$tmp/altered-config.json" --output "$tmp/rejected-plan.json" >/dev/null 2>&1)
+[[ ! -e $tmp/rejected-plan.json && ! -e $tmp/unignored/plan.json ]]
 ! grep -q ERASE "$tmp/log"
 (cd "$tmp/repo"; ! bash "$public" machine plan root@example --disk /dev/vdb --output "$tmp/mismatch-plan.json" >/dev/null 2>&1)
 [[ ! -e $tmp/mismatch-plan.json ]]

@@ -1,2 +1,4 @@
 # Operator-local configuration, plans and install receipts
 .moss/
+# Synthetic CLI fixtures keep private operator paths beneath these directories.
+.test-tmp.*/

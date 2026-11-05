@@ -1,20 +1,55 @@
-# Operator-local defaults. The Git root, not $HOME or the current subdirectory,
-# owns .moss. The caller can always pass explicit paths instead.
+# Operator-local defaults. Inside Git, use the worktree root; elsewhere use
+# the current directory. Neither case stores machine data in $HOME or the store.
 moss_repo_root() {
   local root
-  root=$(git rev-parse --show-toplevel 2>/dev/null) || fail 'run from the consumer Git checkout or pass explicit paths'
-  [[ -d $root && ! -L $root ]] || fail 'unsafe consumer Git checkout'
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$(pwd -P)
+  [[ -d $root && ! -L $root ]] || fail 'unsafe operator directory'
   realpath "$root"
+}
+moss_check_workspace() {
+  local root=$1
+  [[ ! -L $root/.moss ]] || fail 'linked .moss directory'
+  [[ ! -e $root/.moss ]] && return 0
+  [[ -d $root/.moss && $(stat -c %a "$root/.moss") == 700 ]] || fail '.moss must be a mode-700 directory'
+  if git -C "$root" rev-parse --show-toplevel >/dev/null 2>&1; then
+    [[ -z $(git -C "$root" ls-files -- .moss) ]] || fail 'tracked .moss files; remove them from Git'
+    git -C "$root" check-ignore -q --no-index -- .moss/ || fail "add .moss/ to $root/.gitignore and commit the rule before planning"
+  fi
 }
 moss_store() {
   local root
   root=$(moss_repo_root) || return
-  [[ -z $(git -C "$root" ls-files -- .moss) ]] || fail 'tracked .moss files; remove them from Git before planning'
-  if ! git -C "$root" check-ignore -q --no-index -- .moss/; then
-    fail "add .moss/ to $root/.gitignore (and commit that change) before using default storage"
-  fi
-  [[ ! -L $root/.moss ]] || fail 'linked .moss directory'
+  moss_check_workspace "$root"
+  [[ -d $root/.moss ]] || fail "run 'moss init' in $root before planning"
   printf '%s/.moss\n' "$root"
+}
+# Check every operator-owned path, including explicit overrides outside .moss.
+# Consumer Git sources and executable hooks are not operator state.
+moss_private_path() {
+  local path=$1 parent repo relative workspace
+  workspace=$(moss_repo_root) || return
+  moss_check_workspace "$workspace"
+  [[ $path == /* && $path != *..* ]] || fail "expected absolute operator file path: $path"
+  parent=$(dirname "$path")
+  [[ -d $parent && ! -L $parent && ! -L $path && $(realpath -m "$parent") == "$(realpath "$parent")" ]] || fail "unsafe operator file path: $path"
+  repo=$(git -C "$parent" rev-parse --show-toplevel 2>/dev/null) || return 0
+  moss_check_workspace "$repo"
+  [[ $path == "$repo/"* ]] || fail 'operator path outside detected Git root'
+  relative=${path#"$repo/"}
+  [[ -z $(git -C "$repo" ls-files -- "$relative") ]] || fail "tracked operator file: $path"
+  git -C "$repo" check-ignore -q --no-index -- "$relative" || fail "operator file must be Git-ignored: $path"
+}
+moss_private_dir() {
+  local dir=$1 repo relative workspace
+  workspace=$(moss_repo_root) || return
+  moss_check_workspace "$workspace"
+  [[ $dir == /* && $dir != *..* && -d $dir && ! -L $dir && $(realpath -m "$dir") == "$(realpath "$dir")" ]] || fail "unsafe operator directory: $dir"
+  repo=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || return 0
+  moss_check_workspace "$repo"
+  [[ $dir == "$repo/"* ]] || fail 'operator directory outside detected Git root'
+  relative=${dir#"$repo/"}
+  [[ -z $(git -C "$repo" ls-files -- "$relative") ]] || fail "tracked operator directory: $dir"
+  git -C "$repo" check-ignore -q --no-index -- "$relative/" || fail "operator directory must be Git-ignored: $dir"
 }
 moss_target_store() {
   local target=$1
