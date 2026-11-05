@@ -10,10 +10,10 @@ bash packages/cli/helpers/assemble.sh packages/cli/src/moss.sh "$tmp/moss.sh"
 bash packages/cli/helpers/assemble.sh packages/cli/src/machine/deploy.sh "$tmp/deploy.sh"
 for name in moss deploy remote audit-app; do
   case $name in
-    moss) source="$tmp/moss.sh"; executable=packages/cli/bin/moss; spec=docs/cli-spec/moss.json ;;
-    deploy) source="$tmp/deploy.sh"; executable=packages/cli/bin/machine/deploy.sh; spec=docs/cli-spec/deploy.json ;;
-    remote) source=packages/cli/src/machine/bootstrap/remote.sh; executable=packages/cli/bin/machine/bootstrap/remote.sh; spec=docs/cli-spec/machine/bootstrap/remote.json ;;
-    audit-app) source=packages/github-app-audit/src/audit-app.sh; executable=packages/github-app-audit/bin/audit-app.sh; spec=docs/cli-spec/audit-app.json ;;
+    moss) source="$tmp/moss.sh"; executable=packages/cli/bin/moss; spec=docs/spec/cli/moss.json ;;
+    deploy) source="$tmp/deploy.sh"; executable=packages/cli/bin/machine/deploy.sh; spec=docs/spec/cli/machine/deploy.json ;;
+    remote) source=packages/cli/src/machine/bootstrap/remote.sh; executable=packages/cli/bin/machine/bootstrap/remote.sh; spec=docs/spec/cli/machine/bootstrap/remote.json ;;
+    audit-app) source=packages/github-app-audit/src/audit-app.sh; executable=packages/github-app-audit/bin/audit-app.sh; spec=docs/spec/github-app-audit/audit-app.json ;;
   esac
   argc --argc-build "$source" "$tmp/$name.generated"
   cmp "$executable" "$tmp/$name.generated" || { echo "regenerate $executable" >&2; exit 1; }

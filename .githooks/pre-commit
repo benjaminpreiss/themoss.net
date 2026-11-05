@@ -6,7 +6,7 @@ cd "$root"
 # The pinned argc rebuild must match the checked-in Bash scripts, JSON specs,
 # and Markdown reference before allowing a commit.
 nix develop --no-write-lock-file .#dev --command bash tests/argc.sh
-if ! git diff --quiet -- docs/cli-reference.md docs/cli-spec packages/cli/src packages/cli/bin packages/github-app-audit/src packages/github-app-audit/bin; then
+if ! git diff --quiet -- docs/cli-reference.md docs/spec packages/cli/src packages/cli/bin packages/github-app-audit/src packages/github-app-audit/bin; then
   echo 'Stage all CLI sources, generated scripts, JSON specs and Markdown before committing.' >&2
   exit 1
 fi

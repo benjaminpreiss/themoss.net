@@ -33,6 +33,6 @@ Other repositories may share the App or installation; the audit does not reject 
 ## Verify and maintain
 
 - Run `bash tests/audit.sh` for credential-free identity, permission and token-scope fixtures. Then test the **real App** with `workflow_dispatch` before enabling a schedule; mocks cannot establish what GitHub will return.
-- Edit `src/audit-app.sh` (argc-annotated), then run `bash packages/cli/build.sh` at the repository root to regenerate standalone `bin/audit-app.sh` and `docs/cli-spec/audit-app.json`. Never hand-edit the generated script.
+- Edit `src/audit-app.sh` (argc-annotated), then run `bash packages/cli/build.sh` at the repository root to regenerate standalone `bin/audit-app.sh` and `docs/spec/github-app-audit/audit-app.json`. Never hand-edit the generated script.
 
 For machine update policy—not App permissions—see the [machine guide](../cli/src/machine/README.md#update-an-existing-machine).
