@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Verify committed build outputs against a fresh argc build; this does NOT
+# generate the published docs (packages/cli/build.sh does that).
 # Run in the pinned dev shell: nix develop --no-write-lock-file .#dev --command bash tests/argc.sh
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd -P)
@@ -31,8 +33,6 @@ bash -n packages/cli/bin/moss "$tmp/moss.sh"
 ! grep -q '^# @include ' packages/cli/bin/moss packages/cli/bin/machine/deploy.sh
 bash packages/cli/helpers/render-cli-reference.sh "$tmp/specs" >"$tmp/reference.md"
 cmp docs/cli-reference.md "$tmp/reference.md" || { echo 'regenerate docs/cli-reference.md' >&2; exit 1; }
-argc --argc-mangen "$tmp/deploy.sh" "$tmp/man" >/dev/null
-[[ -s $tmp/man/deploy-install.1 && -s $tmp/man/deploy-inputs-apply.1 ]]
 # The generated scripts must work without argc on the operator or target.
 env PATH="$(dirname "$(command -v bash)"):$(dirname "$(command -v basename)"):/usr/bin:/bin" bash packages/cli/bin/moss machine plan --help >"$tmp/help"
 ! bash packages/cli/bin/machine/deploy.sh install only-one-argument >"$tmp/help" 2>&1

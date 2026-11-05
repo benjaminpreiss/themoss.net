@@ -13,7 +13,7 @@ Keep configuration, plans and receipts private **off-host**. Inputs to Nix build
 ## Install a machine
 
 1. **Prepare and review.** Verify the rescue SSH host key through the provider console. Push the exact consumer commit, identify the intended **whole disk**, and prepare credential-free `/private/machine/machine.nix`. The consumer owns Disko, boot/network policy, credentials and evaluated checks; see [manual agentic](../../../../examples/agentic.nix) and [scheduled relay](../../../../examples/thepeer.nix).
-2. **Write off-host configuration.** Save a mode-600 `/private/machine.json` *outside Git* (never commit it):
+2. **Supply off-host desired configuration.** The CLI currently does **not** ask questions or generate `/private/machine.json`; you write this mode-600 file *outside Git* (never commit it). `plan` later probes the target and generates a separate, typed **plan** from this configuration and observed hardware:
 
    ```json
    {

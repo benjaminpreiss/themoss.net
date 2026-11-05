@@ -11,7 +11,7 @@ bash tests/argc.sh
 bash tests/test.sh
 ```
 
-`build.sh` expands `# @include` fragments, builds standalone argc executables, exports JSON specs under [`docs/spec/`](../../docs/spec/) and renders the [CLI reference](../../docs/cli-reference.md). The target needs neither argc nor project sources at runtime. `.#operator` supplies runtime tools **without argc**; `.#dev` adds the pinned generator. Commit generated files with their sources; `tests/argc.sh` checks byte-for-byte drift. Opt into the Bash pre-commit hook with `git config core.hooksPath .githooks` (shared across linked worktrees).
+`build.sh` is the documentation generator: it expands `# @include` fragments, builds standalone argc executables, exports JSON specs under [`docs/spec/`](../../docs/spec/) and renders the [CLI reference](../../docs/cli-reference.md). `tests/argc.sh` independently rebuilds and compares those artifacts; it does not publish documentation. The target needs neither argc nor project sources at runtime. `.#operator` supplies runtime tools **without argc**; `.#dev` adds the pinned generator. Commit generated files with their sources; `tests/argc.sh` checks byte-for-byte drift. Opt into the Bash pre-commit hook with `git config core.hooksPath .githooks` (shared across linked worktrees).
 
 ## Generated specs
 

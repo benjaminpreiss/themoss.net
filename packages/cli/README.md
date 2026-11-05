@@ -4,7 +4,7 @@
 
 ## Install the latest CLI
 
-After this PR reaches `main`, run this on your **operator computer**:
+Run this on your **operator computer** to install the latest CLI from `main`:
 
 ```bash
 mkdir -p "$HOME/.local/bin" && curl -fsSL https://github.com/benjaminpreiss/themoss.net/archive/refs/heads/main.tar.gz | tar -xz -C "$HOME/.local/bin" --strip-components=4 themoss.net-main/packages/cli/bin
