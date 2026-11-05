@@ -1,7 +1,7 @@
-//! Inactive clap command-tree preview for the current public CLI.
-//!
-//! No operation is dispatched yet: this must not replace bin/moss until the
-//! plan/apply/bootstrap implementations and lifecycle fixtures have migrated.
+//! Rust implementation of the public moss interface, migrated operation by operation.
+//! The active executable stays in bin/moss until every operation and the
+//! target-side protocol pass the existing lifecycle fixtures.
+mod init;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -62,9 +62,21 @@ enum MachineAction {
 }
 
 fn main() {
-    let _ = Cli::parse();
-    eprintln!("moss Rust preview: no operations are implemented; use the existing bin/moss");
-    std::process::exit(2);
+    // No secrets in operator-generated files may become group-readable.
+    unsafe {
+        libc::umask(0o077);
+    }
+    let result = match Cli::parse().action {
+        Action::Init => init::run(),
+        Action::Machine { .. } => {
+            eprintln!("moss: machine operations are not migrated yet; use the existing bin/moss");
+            std::process::exit(2);
+        }
+    };
+    if let Err(error) = result {
+        eprintln!("moss: {error}");
+        std::process::exit(1);
+    }
 }
 
 #[cfg(test)]

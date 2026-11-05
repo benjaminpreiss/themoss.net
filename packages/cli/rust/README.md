@@ -1,6 +1,6 @@
-# Rust CLI migration (draft)
+# Rust CLI migration (in progress)
 
-This crate is an **inactive clap interface preview**, based on current `main` at `18ab6e8` (the merged public `moss machine` CLI). It parses the current public commands but **refuses every operation**. Do not install or publish it as `moss`; [`../bin/moss`](../bin/moss) remains the executable. `packages/github-app-audit` is outside this migration.
+This crate is the **replacement implementation in progress**, based on current `main` at `18ab6e8` (the merged public `moss machine` CLI). `moss init` is implemented in Rust; machine operations still refuse to run, so **do not install or publish it as `moss` yet**. [`../bin/moss`](../bin/moss) remains the executable until the entire lifecycle is ported and tested. `packages/github-app-audit` is outside this migration.
 
 ## Migration contract
 
@@ -19,4 +19,4 @@ cargo test --locked
 cargo run -- machine plan --help
 ```
 
-No `cargo run` invocation performs target-side actions. Keep Cargo's cache and target directory inside the worktree when developing in a restricted environment.
+`cargo run -- init` only creates operator-local storage. No `cargo run` invocation performs target-side actions. Keep Cargo's cache and target directory inside the worktree when developing in a restricted environment.
