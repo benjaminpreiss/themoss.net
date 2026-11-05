@@ -1,8 +1,8 @@
 # @cmd Inspect the target and build a non-destructive reviewed installation plan
 # @arg target! <ROOT@HOST> Known rescue SSH target (verify host key independently)
-# @option --config <FILE> Existing private configuration; omit for guided creation
-# @option --disk <DISK> Optional explicit whole disk; otherwise detect and select during guided install
-# @option --output <FILE> New private plan file; defaults to .moss for this target
+# @option --config <FILE> Override the default per-target configuration file
+# @option --disk <DISK> Choose a whole disk explicitly; otherwise detect during guided install
+# @option --output <FILE> New plan file; defaults to this target's .moss/plans directory
 machine::plan() {
   local config=${argc_config:-} target=$argc_target disk=${argc_disk:-} output=${argc_output:-} store=''
   [[ $target =~ ^root@[a-zA-Z0-9_.:-]+$ ]] || fail 'invalid SSH target'

@@ -97,7 +97,7 @@
               "id": "config",
               "long_name": "--config",
               "short_name": null,
-              "describe": "Existing private configuration; omit for guided creation",
+              "describe": "Override the default per-target configuration file",
               "flag": false,
               "notations": [
                 "FILE"
@@ -122,7 +122,7 @@
               "id": "disk",
               "long_name": "--disk",
               "short_name": null,
-              "describe": "Optional explicit whole disk; otherwise detect and select during guided install",
+              "describe": "Choose a whole disk explicitly; otherwise detect during guided install",
               "flag": false,
               "notations": [
                 "DISK"
@@ -147,7 +147,7 @@
               "id": "output",
               "long_name": "--output",
               "short_name": null,
-              "describe": "New private plan file; defaults to .moss for this target",
+              "describe": "New plan file; defaults to this target's .moss/plans directory",
               "flag": false,
               "notations": [
                 "FILE"

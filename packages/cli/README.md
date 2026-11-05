@@ -12,12 +12,8 @@ mkdir -p "$HOME/.local/bin" && curl -fsSL https://github.com/benjaminpreiss/them
 
 Ensure `~/.local/bin` is on your `PATH`, then try `moss machine plan --help`. This installs **all** of `bin/`, not just `moss`: it needs its adjacent private scripts. Running the command again replaces the installed CLI with the latest `main`. Review the version before any real installation; `main` is a moving ref.
 
-## Requirements
+## Before operating a machine
 
-- `bash`, `curl` and `tar` for the download; GNU coreutils, `git`, `jq`, SSH, Nix and `nixos-anywhere` for machine operations.
-- A Linux or macOS operator computer. The [machine guide](src/machine/README.md#operator-environment) explains the pinned Nix shell and macOS Linux-builder requirement.
-- Add `.moss/` to the **consumer checkout's** `.gitignore` before first use. Default operator-local configuration, plans and receipts stay there, **off the target and out of Git**. See [plan, apply and bootstrap](src/machine/README.md#install-a-machine) for disk and SSH-key checks.
-
-For command flags, see the [generated CLI reference](../../docs/cli-reference.md). The unrelated [GitHub App audit](../github-app-audit/README.md) is a separate package.
+The [machine guide](src/machine/README.md#operator-environment) is the single source for runtime requirements, the `.moss/` ignore rule and safety checks. For command flags, see the [generated CLI reference](../../docs/cli-reference.md). The unrelated [GitHub App audit](../github-app-audit/README.md) is a separate package.
 
 **Contributing?** See [DEVELOP.md](DEVELOP.md) for the `src/` → `bin/` build, generated specs and checks.

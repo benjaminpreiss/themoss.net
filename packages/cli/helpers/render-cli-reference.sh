@@ -5,17 +5,19 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/../../.." && pwd -P)
 specs=${1:-$root/docs/spec/cli}
 printf '# moss machine command reference\n\n'
-printf '> Generated from the argc JSON spec. For destructive-operation safeguards and recovery, follow the [machine guide](../packages/cli/src/machine/README.md#install-a-new-machine), not this command list.\n'
+printf '> Generated from the argc JSON spec. For destructive-operation safeguards and recovery, follow the [machine guide](../packages/cli/src/machine/README.md#install-a-machine), not this command list.\n'
 jq -j '
+    def entry($name):
+      "- **`" + $name + "`** (" + (if .required then "required" else "optional" end) + ")" +
+      (if (.describe // "") == "" then "" else " — " + .describe end);
     def arguments:
       (.positionals // [] | if length == 0 then "" else
-        "\n| Argument | Required | Description |\n| --- | --- | --- |\n" +
-        (map("| `" + (.id | ascii_upcase) + "` | " + (if .required then "yes" else "no" end) + " | " + (.describe // "") + " |") | join("\n")) + "\n" end);
+        "\n**Arguments**\n\n" +
+        (map(entry(.id | ascii_upcase)) | join("\n")) + "\n" end);
     def options:
       ([.flag_options[]? | select(.long_name != "--help")] | if length == 0 then "" else
-        "\n| Option | Required | Description |\n| --- | --- | --- |\n" +
-        (map("| `" + .long_name + ((.notations // []) | map(" <" + . + ">") | join("")) + "` | " +
-             (if .required then "yes" else "no" end) + " | " + (.describe // "") + " |") | join("\n")) + "\n" end);
+        "\n**Options**\n\n" +
+        (map(entry(.long_name + ((.notations // []) | map(" <" + . + ">") | join("")))) | join("\n")) + "\n" end);
     def render($path; $level):
       . as $cmd |
       ("\n" + ("#" * $level) + " `" + $path + "`\n\n" + ($cmd.describe // "") + "\n" + arguments + options) +

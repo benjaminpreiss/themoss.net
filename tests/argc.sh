@@ -34,10 +34,12 @@ bash -n packages/cli/bin/moss "$tmp/moss.sh"
 ! grep -q '^# @include ' packages/cli/bin/moss packages/cli/bin/machine/deploy.sh
 bash packages/cli/helpers/render-cli-reference.sh "$tmp/specs" >"$tmp/reference.md"
 cmp docs/cli-reference.md "$tmp/reference.md" || { echo 'regenerate docs/cli-reference.md' >&2; exit 1; }
-grep -Fq '| `--config <FILE>` | no |' "$tmp/reference.md"
-grep -Fq '| `--output <FILE>` | no |' "$tmp/reference.md"
-grep -Fq '| `--plan <FILE>` | no |' "$tmp/reference.md"
-grep -Fq '| `--target <ROOT@HOST>` | no |' "$tmp/reference.md"
+grep -Fq -- '- **`TARGET`** (required)' "$tmp/reference.md"
+grep -Fq -- '- **`--config <FILE>`** (optional)' "$tmp/reference.md"
+grep -Fq -- '- **`--output <FILE>`** (optional)' "$tmp/reference.md"
+grep -Fq -- '- **`--plan <FILE>`** (optional)' "$tmp/reference.md"
+grep -Fq -- '- **`--target <ROOT@HOST>`** (optional)' "$tmp/reference.md"
+! grep -Fq '| Option |' "$tmp/reference.md"
 # The generated scripts must work without argc on the operator or target.
 env PATH="$(dirname "$(command -v bash)"):$(dirname "$(command -v basename)"):/usr/bin:/bin" bash packages/cli/bin/moss machine plan --help >"$tmp/help"
 ! bash packages/cli/bin/machine/deploy.sh install only-one-argument >"$tmp/help" 2>&1
