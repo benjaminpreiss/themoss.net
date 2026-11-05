@@ -5,30 +5,30 @@
 ## Public operator commands
 
 ```bash
-# First use: ask for private source/policy choices. Probe whole disks read-only;
-# propose the only disk or ask which one to use. Save machine.json off-host and
-# a type: install plan without erasing. --disk /dev/vda can select explicitly.
-moss machine plan root@HOST --output /private/install-plan.json
+# From the consumer Git checkout: add .moss/ to .gitignore and commit it.
+# First use asks for source/policy choices and probes whole disks read-only;
+# propose the only disk or ask which one to use. Save an operator-local
+# machine.json and typed install plan under .moss/root@HOST/ without erasing.
+moss machine plan root@HOST
 
 # Revalidate, rebuild, run consumer checks and require typed disk identity
 # immediately before the installer. Writes an off-host install receipt.
-moss machine apply /private/install-plan.json
+moss machine apply --target root@HOST
 
 # Verify the new installed SSH host key independently before first-boot setup.
 # This handoff is retryable and never calls the installer.
-moss machine bootstrap /private/install-receipt.json --config /private/machine.json
+moss machine bootstrap "$(git rev-parse --show-toplevel)/.moss/root@HOST/install-receipt.json"
 
 # On an installed, branch-tracking host: build an exact reviewed tip, check
 # the root-owned selector, and save a type: update plan (no disk action).
-moss machine plan root@HOST --config /private/machine.json \
-  --output /private/update-plan.json
+moss machine plan root@HOST
 
 # Revalidate the reviewed tip and selector under the target lock; build and
 # switch without running Disko. Divergence requires a separate transition.
-moss machine apply /private/update-plan.json
+moss machine apply --target root@HOST
 ```
 
-`moss` is the public entry point (generated executable `packages/cli/bin/moss`). The operator's mode-600 JSON declares pinned source, policy paths and the reviewed whole-disk candidate, not a second Nix machine definition. Omit `--config` on first use to create it interactively; subsequent plans can pass the existing file. `plan` captures observations and creates a separate typed, mode-600 plan. A complete evaluated storage diff requires consumer-provided checks; the CLI does not infer safe disk layout from generic Nix data. A sole detected disk is only proposed, not authorized for erasure. Applying an install plan *always* requires a new typed disk confirmation and re-probe. A failed or uncertain switch blocks further automatic updates until inspection.
+`moss` is the public entry point (generated executable `packages/cli/bin/moss`). The operator's mode-600 JSON declares pinned source, policy paths and the reviewed whole-disk candidate, not a second Nix machine definition. By default `plan` finds the consumer checkout's Git root, refuses an unignored `.moss/` directory and interactively creates `.moss/root@HOST/machine.json` on first use. Subsequent plans reuse it, write separate mode-600 JSON files under `plans/` and update a per-target `latest` reference only after success. `apply` requires `--target root@HOST` when several targets have plans; `--config`, `--output` and `--plan` (or a positional plan path) remain explicit overrides. A default plan never silently crosses targets. A complete evaluated storage diff requires consumer-provided checks; the CLI does not infer safe disk layout from generic Nix data. A sole detected disk is only proposed, not authorized for erasure. Applying an install plan *always* requires a new typed disk confirmation and re-probe. A failed or uncertain switch blocks further automatic updates until inspection.
 
 ## Internal protocol and future work
 
