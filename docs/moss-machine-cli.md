@@ -5,8 +5,11 @@
 ## Public operator commands
 
 ```bash
-# From the consumer Git checkout: add .moss/ to .gitignore and commit it.
-# First use asks for source/policy choices and probes whole disks read-only;
+# In the consumer checkout, initialize local operator state. This creates
+# .moss/ and prints a Git-ignore instruction if needed; it never runs an install.
+moss init
+
+# First plan asks for source/policy choices and probes whole disks read-only;
 # propose the only disk or ask which one to use. Save an operator-local
 # machine.json and typed install plan under .moss/root@HOST/ without erasing.
 moss machine plan root@HOST
@@ -28,7 +31,7 @@ moss machine plan root@HOST
 moss machine apply --target root@HOST
 ```
 
-`moss` is the public entry point (generated executable `packages/cli/bin/moss`). The operator's mode-600 JSON declares pinned source, policy paths and the reviewed whole-disk candidate, not a second Nix machine definition. By default `plan` finds the consumer checkout's Git root, refuses an unignored `.moss/` directory and interactively creates `.moss/root@HOST/machine.json` on first use. Subsequent plans reuse it, write separate mode-600 JSON files under `plans/` and update a per-target `latest` reference only after success. `apply` requires `--target root@HOST` when several targets have plans; `--config`, `--output` and `--plan` (or a positional plan path) remain explicit overrides. A default plan never silently crosses targets. A complete evaluated storage diff requires consumer-provided checks; the CLI does not infer safe disk layout from generic Nix data. A sole detected disk is only proposed, not authorized for erasure. Applying an install plan *always* requires a new typed disk confirmation and re-probe. A failed or uncertain switch blocks further automatic updates until inspection.
+`moss` is the public entry point (generated executable `packages/cli/bin/moss`). The operator's mode-600 JSON declares pinned source, policy paths and the reviewed whole-disk candidate, not a second Nix machine definition. `moss init` creates mode-700 `.moss/` in the current directory or Git ancestor without editing `.gitignore`, creating config or contacting a target. When needed it prints an instruction to ignore `.moss/`; subsequent CLI operations refuse unignored/tracked operator files in Git, including explicit config/plan/receipt paths. By default `plan` uses the initialized Git root and interactively creates `.moss/root@HOST/machine.json` on first use. Subsequent plans reuse it, write separate mode-600 JSON files under `plans/` and update a per-target `latest` reference only after success. `apply` requires `--target root@HOST` when several targets have plans; `--config`, `--output` and `--plan` (or a positional plan path) remain explicit overrides. A default plan never silently crosses targets. A complete evaluated storage diff requires consumer-provided checks; the CLI does not infer safe disk layout from generic Nix data. A sole detected disk is only proposed, not authorized for erasure. Applying an install plan *always* requires a new typed disk confirmation and re-probe. A failed or uncertain switch blocks further automatic updates until inspection.
 
 ## Internal protocol and future work
 
