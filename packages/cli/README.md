@@ -1,6 +1,6 @@
 # `moss` CLI
 
-`moss machine` plans, applies and bootstraps NixOS installs and updates. See the [machine guide](src/machine/README.md) before applying a plan: **install can erase a disk**. Repair (`fix`) is not available yet.
+`moss machine` guides first-use configuration, then plans, applies and bootstraps NixOS installs and updates. See the [machine guide](src/machine/README.md) before applying a plan: **install can erase a disk**. Repair (`fix`) is not available yet.
 
 ## Install the latest CLI
 

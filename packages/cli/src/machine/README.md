@@ -12,42 +12,24 @@ Keep configuration, plans and receipts private **off-host**. Inputs to Nix build
 
 ## Install a machine
 
-1. **Prepare and review.** Verify the rescue SSH host key through the provider console. Push the exact consumer commit, identify the intended **whole disk**, and prepare credential-free `/private/machine/machine.nix`. The consumer owns Disko, boot/network policy, credentials and evaluated checks; see [manual agentic](../../../../examples/agentic.nix) and [scheduled relay](../../../../examples/thepeer.nix).
-2. **Supply off-host desired configuration.** The CLI currently does **not** ask questions or generate `/private/machine.json`; you write this mode-600 file *outside Git* (never commit it). `plan` later probes the target and generates a separate, typed **plan** from this configuration and observed hardware:
-
-   ```json
-   {
-     "version": 1,
-     "repo": "/work/consumer",
-     "revision": "FULL_40_CHARACTER_PUSHED_COMMIT",
-     "branch": "main",
-     "output": "HOST_OUTPUT",
-     "machine": "/private/machine",
-     "receipt": "/private/install-receipt.json",
-     "remoteCheckout": "/root/consumer",
-     "remoteMachine": "/root/private-machine",
-     "remoteState": "/var/lib/themoss",
-     "preEraseCheck": "/private/check-evaluated-config"
-   }
-   ```
-
-   `preEraseCheck` is optional. When provided, it runs *after build* with `STAGED_FLAKE HOST_OUTPUT RECORD` and must reject evaluated Disko/boot/network choices that disagree with discovery. The CLI **does not** render a complete Disko layout diff. Optional `reportGenerator` writes `facter.json`; optional `recoveryDir` holds root-only `nixos-anywhere --extra-files` content such as SSH keys. Keep both outside the flake. Neither target nor disk belongs in this JSON.
-3. **Plan without erasing:**
+1. **Prepare and review.** Verify the rescue SSH host key through the provider console. Push the exact consumer commit, be ready to review the target's **whole disks**, and prepare credential-free `/private/machine/machine.nix`. The consumer owns Disko, boot/network policy, credentials and evaluated checks; see [manual agentic](../../../../examples/agentic.nix) and [scheduled relay](../../../../examples/thepeer.nix).
+2. **Plan without erasing.** Provide the verified rescue SSH target explicitly. On first use, omit `--config`: the CLI asks for the checkout, pushed revision/branch, NixOS output and private paths. It **lists whole disks** from the target with size, model and serial. It proposes the only disk if there is one; if there are several, you must select one by number. You can supply `--disk /dev/vda` to select explicitly. It saves the reviewed disk in a new mode-600 `/private/machine.json` **off-host**, without overwriting an existing file.
 
    ```bash
-   moss machine plan root@HOST --config /private/machine.json \
-     --disk /dev/vda --output /private/install-plan.json
+   moss machine plan root@HOST --output /private/install-plan.json
    ```
 
-   Review target, NIC/MAC, architecture, **disk path/size/model/serial**, branch tip, NixOS output and evaluated policy. A plan is *not* erase authorization.
-4. **Apply with confirmation:**
+   `plan` re-probes the target and builds a separate typed proposal. **Review** target, NIC/MAC, architecture, disk path/size/model/serial, branch tip, NixOS output and evaluated policy. *Automatic selection is not permission to erase*; even a single disk needs typed confirmation at apply. For later plans, pass `--config /private/machine.json` to reuse this reviewed configuration. If you author JSON yourself, include the whole-disk path or pass `--disk` explicitly.
+
+   Optional `preEraseCheck` runs *after build* with `STAGED_FLAKE HOST_OUTPUT RECORD` and must reject evaluated Disko/boot/network choices that disagree with discovery. The CLI **does not** render a complete Disko layout diff. Optional `reportGenerator` writes `facter.json`; optional `recoveryDir` holds root-only `nixos-anywhere --extra-files` content such as SSH keys. Keep both outside the flake.
+3. **Apply with confirmation:**
 
    ```bash
    moss machine apply /private/install-plan.json
    ```
 
    Apply rebuilds and rechecks the pushed tip, evaluated policy and live disk before requiring you to type `ERASE /dev/vda`. It rechecks again immediately before the installer. **Any mismatch? Stop and make a new plan.**
-5. **Verify the *new* installed SSH host key through the provider console**, then bootstrap without erasing:
+4. **Verify the *new* installed SSH host key through the provider console**, then bootstrap without erasing:
 
    ```bash
    moss machine bootstrap /private/install-receipt.json --config /private/machine.json

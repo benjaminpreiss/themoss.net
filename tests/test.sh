@@ -70,6 +70,36 @@ git -C "$tmp/repo" remote add origin "$tmp/origin.git"
 receipt="$tmp/install-receipt.json"
 printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/machine" test main "$receipt" >/dev/null 2>&1 && exit 1
 git -C "$tmp/repo" push -q origin HEAD:main
+# The public planner can guide an operator through creating private desired
+# configuration. One detected whole disk becomes a proposal, never erase consent.
+public="$root/packages/cli/bin/moss"
+printf '%s\n' "$tmp/repo" '' main test "$tmp/machine" '' '' '' '' '' '' '' y | \
+  MOSS_TEST_INPUT=1 bash "$public" machine plan root@example --output "$tmp/interactive-plan.json" >/dev/null
+[[ $(stat -c %a "$tmp/machine.json") == 600 && $(jq -r .type "$tmp/interactive-plan.json") == install ]]
+jq -e --arg repo "$tmp/repo" --arg rev "$first" --arg machine "$tmp/machine" \
+  '.repo == $repo and .revision == $rev and .branch == "main" and .output == "test" and .machine == $machine and .disk == "/dev/vda"' "$tmp/machine.json" >/dev/null
+! grep -q ERASE "$tmp/log"
+! bash "$public" machine plan root@example --config "$tmp/machine.json" --disk /dev/vdb --output "$tmp/mismatch-plan.json" >/dev/null 2>&1
+[[ ! -e $tmp/mismatch-plan.json ]]
+! MOSS_TEST_INPUT=1 bash "$public" machine plan root@example --disk /dev/vda --output "$tmp/repeat-plan.json" </dev/null >/dev/null 2>&1
+[[ ! -e $tmp/repeat-plan.json ]]
+mkdir "$tmp/cancelled"
+! printf '%s\n' "$tmp/repo" | MOSS_TEST_INPUT=1 bash "$public" machine plan root@example --disk /dev/vda --output "$tmp/cancelled/plan.json" >/dev/null 2>&1
+[[ ! -e $tmp/cancelled/machine.json && ! -e $tmp/cancelled/plan.json ]]
+# Multiple whole disks require a numbered human choice; never guess.
+printf '%s\n' x86_64 bios '[{"dev":"eth0"}]' \
+  '{"blockdevices":[{"path":"/dev/vda","type":"disk","size":1000,"model":"A","serial":"123"},{"path":"/dev/vdb","type":"disk","size":2000,"model":"B","serial":"456"}]}' >"$tmp/probe"
+mkdir "$tmp/multiple"
+printf '%s\n' "$tmp/repo" '' main test "$tmp/machine" '' '' '' '' '' '' '' 2 y | \
+  MOSS_TEST_INPUT=1 bash "$public" machine plan root@example --output "$tmp/multiple/plan.json" >/dev/null
+[[ $(jq -r .disk "$tmp/multiple/machine.json") == /dev/vdb && $(jq -r .disk "$tmp/multiple/plan.json") == /dev/vdb ]]
+mkdir "$tmp/no-choice"
+printf '%s\n' "$tmp/repo" '' main test "$tmp/machine" '' '' '' '' '' '' '' 0 | \
+  MOSS_TEST_INPUT=1 bash "$public" machine plan root@example --output "$tmp/no-choice/plan.json" >/dev/null 2>&1 && exit 1
+[[ ! -e $tmp/no-choice/machine.json && ! -e $tmp/no-choice/plan.json ]]
+printf '%s\n' x86_64 bios '[{"dev":"eth0"}]' \
+  '{"blockdevices":[{"path":"/dev/vda","type":"disk","size":1000,"model":"A","serial":"123"}]}' >"$tmp/probe"
+! grep -q ERASE "$tmp/log"
 # Two synthetic consumers exercise the shared private install-input check;
 # there is no public manifest authoring or compatibility command.
 for consumer in relay agentic; do

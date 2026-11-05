@@ -17,9 +17,10 @@ config_file() {
   private_file "$1"
   jq -e '
     type == "object" and .version == 1 and
-    ((keys - ["version","repo","revision","branch","output","machine","receipt","remoteCheckout","remoteMachine","remoteState","reportGenerator","recoveryDir","preEraseCheck"]) == []) and
+    ((keys - ["version","repo","revision","branch","output","machine","receipt","remoteCheckout","remoteMachine","remoteState","reportGenerator","recoveryDir","preEraseCheck","disk"]) == []) and
     ([.repo,.revision,.branch,.output,.machine,.receipt,.remoteCheckout,.remoteMachine,.remoteState] | all(type == "string" and length > 0)) and
-    ([.reportGenerator // "-",.recoveryDir // "-",.preEraseCheck // "-"] | all(type == "string" and length > 0))
+    ([.reportGenerator // "-",.recoveryDir // "-",.preEraseCheck // "-"] | all(type == "string" and length > 0)) and
+    (if has("disk") then (.disk | type == "string" and test("^/dev/[A-Za-z0-9_./-]+$") and (contains("..") | not)) else true end)
   ' "$1" >/dev/null || fail 'invalid private machine configuration'
   local repo path relative machine
   repo=$(jq -r .repo "$1") machine=$(jq -r .machine "$1")
@@ -50,6 +51,7 @@ remote_call() {
 # @cmd Operate on a machine
 machine() { :; }
 
+# @include machine/plan/configure.sh
 # @include machine/plan/cli.sh
 
 # @include machine/apply/cli.sh

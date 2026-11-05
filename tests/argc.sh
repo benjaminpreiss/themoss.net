@@ -20,19 +20,22 @@ for name in moss deploy remote audit-app; do
   argc --argc-build "$source" "$tmp/$name.generated"
   cmp "$executable" "$tmp/$name.generated" || { echo "regenerate $executable" >&2; exit 1; }
   bash "$executable" --help >"$tmp/help"
-  argc --argc-export "$source" >"$tmp/specs/$name.json"
+  bash packages/cli/helpers/export-spec.sh "$source" >"$tmp/specs/$name.json"
   cmp "$spec" "$tmp/specs/$name.json" || { echo "regenerate $spec" >&2; exit 1; }
   jq -e '.name == $name and (.flag_options | any(.long_name == "--help"))' --arg name "$name" "$tmp/specs/$name.json" >/dev/null
   bash -n "$executable" "$source"
 done
-jq -e '[.subcommands[].name] | index("install") and index("bootstrap") and index("inputs") and index("poll")' "$tmp/specs/deploy.json" >/dev/null
+jq -e '[.subcommands[].name] | index("install") and index("bootstrap") and index("inputs") and index("list-disks") and index("poll")' "$tmp/specs/deploy.json" >/dev/null
 jq -e '[.subcommands[] | select(.name == "inputs") | .subcommands[].name] | sort == ["apply","check"]' "$tmp/specs/deploy.json" >/dev/null
 jq -e '[.subcommands[].name] | sort == ["finish","prepare"]' "$tmp/specs/remote.json" >/dev/null
 jq -e '[.subcommands[] | select(.name == "machine") | .subcommands[].name] | sort == ["apply","bootstrap","plan"]' "$tmp/specs/moss.json" >/dev/null
+jq -e '[.subcommands[] | select(.name == "machine") | .subcommands[] | select(.name == "plan") | .flag_options[] | select(.long_name == "--config") | .required] == [false]' "$tmp/specs/moss.json" >/dev/null
 bash -n packages/cli/bin/moss "$tmp/moss.sh"
 ! grep -q '^# @include ' packages/cli/bin/moss packages/cli/bin/machine/deploy.sh
 bash packages/cli/helpers/render-cli-reference.sh "$tmp/specs" >"$tmp/reference.md"
 cmp docs/cli-reference.md "$tmp/reference.md" || { echo 'regenerate docs/cli-reference.md' >&2; exit 1; }
+grep -Fq '| `--config <FILE>` | no |' "$tmp/reference.md"
+grep -Fq '| `--output <FILE>` | yes |' "$tmp/reference.md"
 # The generated scripts must work without argc on the operator or target.
 env PATH="$(dirname "$(command -v bash)"):$(dirname "$(command -v basename)"):/usr/bin:/bin" bash packages/cli/bin/moss machine plan --help >"$tmp/help"
 ! bash packages/cli/bin/machine/deploy.sh install only-one-argument >"$tmp/help" 2>&1

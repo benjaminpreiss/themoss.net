@@ -11,9 +11,14 @@ jq -j '
       (.positionals // [] | if length == 0 then "" else
         "\n| Argument | Required | Description |\n| --- | --- | --- |\n" +
         (map("| `" + (.id | ascii_upcase) + "` | " + (if .required then "yes" else "no" end) + " | " + (.describe // "") + " |") | join("\n")) + "\n" end);
+    def options:
+      ([.flag_options[]? | select(.long_name != "--help")] | if length == 0 then "" else
+        "\n| Option | Required | Description |\n| --- | --- | --- |\n" +
+        (map("| `" + .long_name + ((.notations // []) | map(" <" + . + ">") | join("")) + "` | " +
+             (if .required then "yes" else "no" end) + " | " + (.describe // "") + " |") | join("\n")) + "\n" end);
     def render($path; $level):
       . as $cmd |
-      ("\n" + ("#" * $level) + " `" + $path + "`\n\n" + ($cmd.describe // "") + "\n" + arguments) +
+      ("\n" + ("#" * $level) + " `" + $path + "`\n\n" + ($cmd.describe // "") + "\n" + arguments + options) +
       ([ $cmd.subcommands[]? | render($path + " " + .name; $level + 1) ] | join(""));
-    render("bash packages/cli/bin/moss"; 2)
+    render("moss"; 2)
   ' "$specs/moss.json"

@@ -10,13 +10,13 @@ trap 'rm -rf -- "$tmp"' EXIT
 bash packages/cli/helpers/assemble.sh packages/cli/src/machine/deploy.sh "$tmp/deploy.sh"
 bash packages/cli/helpers/assemble.sh packages/cli/src/moss.sh "$tmp/moss.sh"
 argc --argc-build "$tmp/deploy.sh" packages/cli/bin/machine/deploy.sh
-argc --argc-export "$tmp/deploy.sh" >docs/spec/cli/machine/deploy.json
+bash packages/cli/helpers/export-spec.sh "$tmp/deploy.sh" >docs/spec/cli/machine/deploy.json
 argc --argc-build packages/cli/src/machine/bootstrap/remote.sh packages/cli/bin/machine/bootstrap/remote.sh
-argc --argc-export packages/cli/src/machine/bootstrap/remote.sh >docs/spec/cli/machine/bootstrap/remote.json
+bash packages/cli/helpers/export-spec.sh packages/cli/src/machine/bootstrap/remote.sh >docs/spec/cli/machine/bootstrap/remote.json
 argc --argc-build packages/github-app-audit/src/audit-app.sh packages/github-app-audit/bin/audit-app.sh
-argc --argc-export packages/github-app-audit/src/audit-app.sh >docs/spec/github-app-audit/audit-app.json
+bash packages/cli/helpers/export-spec.sh packages/github-app-audit/src/audit-app.sh >docs/spec/github-app-audit/audit-app.json
 argc --argc-build "$tmp/moss.sh" packages/cli/bin/moss
-argc --argc-export "$tmp/moss.sh" >docs/spec/cli/moss.json
+bash packages/cli/helpers/export-spec.sh "$tmp/moss.sh" >docs/spec/cli/moss.json
 chmod +x packages/cli/bin/moss packages/cli/bin/machine/deploy.sh packages/cli/bin/machine/bootstrap/remote.sh packages/github-app-audit/bin/audit-app.sh
 bash packages/cli/helpers/render-cli-reference.sh > docs/cli-reference.md
 printf 'Generated CLI scripts, JSON specs and reference; run bash tests/argc.sh and bash tests/test.sh\n'

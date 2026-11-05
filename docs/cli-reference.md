@@ -2,15 +2,19 @@
 
 > Generated from the argc JSON spec. For destructive-operation safeguards and recovery, follow the [machine guide](../packages/cli/src/machine/README.md#install-a-new-machine), not this command list.
 
-## `bash packages/cli/bin/moss`
+## `moss`
 
 Plan and apply reviewed changes to a themoss machine
 
-### `bash packages/cli/bin/moss machine`
+| Option | Required | Description |
+| --- | --- | --- |
+| `--version` | no |  |
+
+### `moss machine`
 
 Operate on a machine
 
-#### `bash packages/cli/bin/moss machine plan`
+#### `moss machine plan`
 
 Inspect the target and build a non-destructive reviewed installation plan
 
@@ -18,7 +22,13 @@ Inspect the target and build a non-destructive reviewed installation plan
 | --- | --- | --- |
 | `TARGET` | yes | Known rescue SSH target (verify host key independently) |
 
-#### `bash packages/cli/bin/moss machine apply`
+| Option | Required | Description |
+| --- | --- | --- |
+| `--config <FILE>` | no | Existing private configuration; omit for guided creation |
+| `--disk <DISK>` | no | Optional explicit whole disk; otherwise detect and select during guided install |
+| `--output <FILE>` | yes | New private plan file |
+
+#### `moss machine apply`
 
 Revalidate and apply a reviewed plan; installation erases the selected disk
 
@@ -26,10 +36,14 @@ Revalidate and apply a reviewed plan; installation erases the selected disk
 | --- | --- | --- |
 | `PLAN` | yes | Private typed plan produced by machine plan |
 
-#### `bash packages/cli/bin/moss machine bootstrap`
+#### `moss machine bootstrap`
 
 Resume first-boot handoff after independently verifying the new SSH host key
 
 | Argument | Required | Description |
 | --- | --- | --- |
 | `RECEIPT` | yes | Off-host installation receipt |
+
+| Option | Required | Description |
+| --- | --- | --- |
+| `--config <FILE>` | yes | Original private machine configuration |

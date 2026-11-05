@@ -1,7 +1,6 @@
 {
   "name": "deploy",
   "describe": "Internal machine protocol; use moss machine for operator commands.",
-  "author": null,
   "version": null,
   "aliases": [],
   "flag_options": [
@@ -58,7 +57,6 @@
     {
       "name": "discover",
       "describe": "Create a private discovery record for one whole disk",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -129,9 +127,56 @@
       "command_fn": "discover"
     },
     {
+      "name": "list-disks",
+      "describe": "Internal: list whole disks on a verified target without modifying it",
+      "version": null,
+      "aliases": [],
+      "flag_options": [
+        {
+          "id": "help",
+          "long_name": "--help",
+          "short_name": "-h",
+          "describe": "",
+          "flag": true,
+          "notations": [],
+          "required": false,
+          "multiple_values": false,
+          "multiple_occurs": false,
+          "num_args": [
+            0,
+            0
+          ],
+          "delimiter": null,
+          "terminated": false,
+          "prefixed": false,
+          "assigned": false,
+          "default": null,
+          "choice": null,
+          "env": null,
+          "inherited": false
+        }
+      ],
+      "positionals": [
+        {
+          "id": "target",
+          "describe": "Verified root SSH target",
+          "notation": "ROOT@HOST",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        }
+      ],
+      "envs": [],
+      "subcommands": [],
+      "command_fn": "list-disks"
+    },
+    {
       "name": "preflight",
       "describe": "Re-probe and compare the target with its discovery record",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -180,7 +225,6 @@
     {
       "name": "install",
       "describe": "Build and install an exact pushed revision; erases the selected disk",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -337,7 +381,6 @@
     {
       "name": "bootstrap",
       "describe": "Bootstrap the exact installed revision without erasing disks",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -446,7 +489,6 @@
     {
       "name": "adopt",
       "describe": "Internal: adopt a verified existing host without reinstalling",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -567,7 +609,6 @@
     {
       "name": "transition",
       "describe": "Run a reviewed non-destructive candidate transition",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -700,7 +741,6 @@
     {
       "name": "poll",
       "describe": "Poll the root-owned selector for a new revision (target-side)",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -785,7 +825,6 @@
     {
       "name": "deploy",
       "describe": "Switch to an explicitly selected revision (target-side)",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -882,7 +921,6 @@
     {
       "name": "inputs",
       "describe": "Internal: validate ephemeral installation inputs",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -916,7 +954,6 @@
         {
           "name": "check",
           "describe": "Internal: re-probe and check an off-host installation proposal",
-          "author": null,
           "version": null,
           "aliases": [],
           "flag_options": [
@@ -965,7 +1002,6 @@
         {
           "name": "apply",
           "describe": "Internal: revalidate and install from reviewed input data",
-          "author": null,
           "version": null,
           "aliases": [],
           "flag_options": [
@@ -1017,7 +1053,6 @@
     {
       "name": "plan-update",
       "describe": "Internal: build and check a reviewed branch update without switching",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -1138,7 +1173,6 @@
     {
       "name": "apply-reviewed",
       "describe": "Internal: switch only the exact reviewed branch update",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -1283,7 +1317,6 @@
     {
       "name": "plan-build",
       "describe": "Internal: build and check a fresh install plan without erasing",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -1416,7 +1449,6 @@
     {
       "name": "prepare-transition",
       "describe": "Internal: prepare a reviewed transition upload (target-side)",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [
@@ -1513,7 +1545,6 @@
     {
       "name": "apply-transition",
       "describe": "Internal: apply a reviewed candidate transition (target-side)",
-      "author": null,
       "version": null,
       "aliases": [],
       "flag_options": [

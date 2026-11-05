@@ -17,9 +17,10 @@ config_file() {
   private_file "$1"
   jq -e '
     type == "object" and .version == 1 and
-    ((keys - ["version","repo","revision","branch","output","machine","receipt","remoteCheckout","remoteMachine","remoteState","reportGenerator","recoveryDir","preEraseCheck"]) == []) and
+    ((keys - ["version","repo","revision","branch","output","machine","receipt","remoteCheckout","remoteMachine","remoteState","reportGenerator","recoveryDir","preEraseCheck","disk"]) == []) and
     ([.repo,.revision,.branch,.output,.machine,.receipt,.remoteCheckout,.remoteMachine,.remoteState] | all(type == "string" and length > 0)) and
-    ([.reportGenerator // "-",.recoveryDir // "-",.preEraseCheck // "-"] | all(type == "string" and length > 0))
+    ([.reportGenerator // "-",.recoveryDir // "-",.preEraseCheck // "-"] | all(type == "string" and length > 0)) and
+    (if has("disk") then (.disk | type == "string" and test("^/dev/[A-Za-z0-9_./-]+$") and (contains("..") | not)) else true end)
   ' "$1" >/dev/null || fail 'invalid private machine configuration'
   local repo path relative machine
   repo=$(jq -r .repo "$1") machine=$(jq -r .machine "$1")
@@ -50,17 +51,119 @@ remote_call() {
 # @cmd Operate on a machine
 machine() { :; }
 
+# Private guided authoring for a new off-host desired configuration. The
+# public command remains `plan`; selection is a proposal, never erase consent.
+configure_ask() {
+  local label=$1 default=${2:-} answer
+  if [[ -n $default ]]; then printf '%s [%s]: ' "$label" "$default" >&2
+  else printf '%s: ' "$label" >&2; fi
+  IFS= read -r answer || fail 'configuration cancelled'
+  CONFIG_ANSWER=${answer:-$default}
+  [[ -n $CONFIG_ANSWER ]] || fail "$label cannot be empty"
+}
+configure_optional() {
+  local answer
+  printf '%s (blank to omit): ' "$1" >&2
+  IFS= read -r answer || fail 'configuration cancelled'
+  CONFIG_ANSWER=$answer
+}
+configure_for_plan() {
+  local file=$1 target=$2 requested_disk=$3 base repo rev branch host machine receipt checkout remote_machine state generator recovery check tmp answer tip disks count disk selection
+  [[ -t 0 || ${MOSS_TEST_INPUT:-} == 1 ]] || fail 'without --config, plan requires an interactive terminal'
+  [[ $file == /* && $file != *..* && ! -e $file && ! -L $file ]] || fail 'choose a new absolute off-host configuration path or pass --config'
+  base=$(dirname "$file")
+  [[ -d $base && ! -L $base ]] || fail 'configuration directory missing or linked'
+  printf 'Create %s (mode 600, off-host). No disk action occurs while answering.\n' "$file" >&2
+  printf 'Do not enter secrets: machine.nix and facter.json may enter the Nix store.\n' >&2
+  configure_ask 'Consumer Git checkout (absolute path)' "$(pwd -P)"; repo=$CONFIG_ANSWER
+  [[ $repo == /* && -d $repo && ! -L $repo ]] || fail 'invalid consumer checkout'
+  [[ $file != "$repo/"* ]] || fail 'create configuration outside the consumer checkout'
+  rev=$(git -C "$repo" rev-parse --verify HEAD) || fail 'consumer checkout has no commit'
+  configure_ask 'Full pushed commit' "$rev"; rev=$CONFIG_ANSWER
+  [[ $rev =~ ^[0-9a-f]{40}$ ]] || fail 'expected a full commit SHA'
+  branch=$(git -C "$repo" branch --show-current)
+  configure_ask 'Pushed branch' "$branch"; branch=$CONFIG_ANSWER
+  [[ $branch =~ ^[a-zA-Z0-9_/-]+$ && $branch != *..* ]] || fail 'invalid branch'
+  tip=$(git -C "$repo" ls-remote --exit-code origin "refs/heads/$branch" | cut -f1) || fail 'pushed branch not found'
+  [[ $tip == "$rev" ]] || fail 'revision differs from pushed branch tip'
+  configure_ask 'NixOS host output' "$(basename "$repo")"; host=$CONFIG_ANSWER
+  [[ $host =~ ^[a-zA-Z0-9_-]+$ ]] || fail 'invalid NixOS host output'
+  configure_ask 'Private machine directory with credential-free machine.nix' "$base/machine"; machine=$CONFIG_ANSWER
+  configure_ask 'Off-host install receipt' "$base/install-receipt.json"; receipt=$CONFIG_ANSWER
+  configure_ask 'Remote checkout' "/root/$(basename "$repo")"; checkout=$CONFIG_ANSWER
+  configure_ask 'Remote private machine directory' /root/private-machine; remote_machine=$CONFIG_ANSWER
+  configure_ask 'Remote root-owned state directory' /var/lib/themoss; state=$CONFIG_ANSWER
+  configure_optional 'Consumer report generator executable'; generator=$CONFIG_ANSWER
+  configure_optional 'Consumer recovery tree (never staged in Nix)'; recovery=$CONFIG_ANSWER
+  configure_optional 'Consumer evaluated pre-erase check executable'; check=$CONFIG_ANSWER
+  disk=''
+  if [[ -e $receipt || -L $receipt ]]; then
+    [[ -z $requested_disk ]] || fail 'installed receipt exists; never select a disk for an update'
+  else
+    disks=$(bash "$deploy" list-disks "$target") || fail 'cannot list whole disks on target'
+    count=$(jq -r 'length' <<<"$disks")
+    ((count > 0)) || fail 'target reported no whole disks'
+    printf 'Whole disks detected on %s:\n' "$target" >&2
+    jq -r 'to_entries[] | "  \(.key + 1). \(.value.path) size=\(.value.size) model=\(.value.model // "unknown") serial=\(.value.serial // "unknown")"' <<<"$disks" >&2
+    if [[ -n $requested_disk ]]; then
+      [[ $(jq --arg disk "$requested_disk" '[.[] | select(.path == $disk)] | length' <<<"$disks") == 1 ]] || fail '--disk is not a unique whole disk on target'
+      disk=$requested_disk
+    elif ((count == 1)); then
+      disk=$(jq -r '.[0].path' <<<"$disks")
+      printf 'Only one whole disk; proposing %s (NOT authorization to erase).\n' "$disk" >&2
+    else
+      printf 'Select whole disk [1-%s] (no default): ' "$count" >&2
+      IFS= read -r selection || fail 'disk selection cancelled'
+      [[ $selection =~ ^[1-9][0-9]*$ ]] || fail 'invalid disk selection'
+      ((selection >= 1 && selection <= count)) || fail 'disk selection out of range'
+      disk=$(jq -r --argjson index "$((selection - 1))" '.[$index].path' <<<"$disks")
+    fi
+    [[ $disk =~ ^/dev/[a-zA-Z0-9_./-]+$ && $disk != *..* ]] || fail 'unsafe whole-disk path'
+  fi
+  CONFIG_DISK=$disk
+  tmp=$(mktemp "$base/.moss-config.XXXXXXXX")
+  trap "rm -f -- $(printf '%q' "$tmp")" EXIT
+  jq -n --arg repo "$repo" --arg revision "$rev" --arg branch "$branch" \
+    --arg output "$host" --arg machine "$machine" --arg receipt "$receipt" \
+    --arg checkout "$checkout" --arg remote_machine "$remote_machine" --arg state "$state" \
+    --arg generator "$generator" --arg recovery "$recovery" --arg check "$check" --arg disk "$disk" '
+    {version:1,repo:$repo,revision:$revision,branch:$branch,output:$output,
+     machine:$machine,receipt:$receipt,remoteCheckout:$checkout,
+     remoteMachine:$remote_machine,remoteState:$state}
+    + (if $generator == "" then {} else {reportGenerator:$generator} end)
+    + (if $recovery == "" then {} else {recoveryDir:$recovery} end)
+    + (if $check == "" then {} else {preEraseCheck:$check} end)
+    + (if $disk == "" then {} else {disk:$disk} end)
+  ' >"$tmp"
+  chmod 600 "$tmp"
+  config_file "$tmp"
+  printf 'Review the private configuration below before saving:\n' >&2
+  jq . "$tmp" >&2
+  printf 'Save this configuration? [y/N] ' >&2
+  IFS= read -r answer || fail 'configuration cancelled'
+  [[ $answer == y || $answer == Y ]] || fail 'configuration not saved'
+  [[ ! -e $file && ! -L $file ]] || fail 'configuration appeared during authoring'
+  ln -- "$tmp" "$file" || fail 'cannot publish configuration without overwriting'
+  rm -f -- "$tmp"
+  trap - EXIT
+  printf 'Created %s (mode 600); plan will now re-probe the selected target.\n' "$file" >&2
+}
 # @cmd Inspect the target and build a non-destructive reviewed installation plan
 # @arg target! <ROOT@HOST> Known rescue SSH target (verify host key independently)
-# @option --config! <FILE> Private off-host desired configuration
-# @option --disk <DISK> Explicit whole /dev disk for a fresh install; omit for an installed host
+# @option --config <FILE> Existing private configuration; omit for guided creation
+# @option --disk <DISK> Optional explicit whole disk; otherwise detect and select during guided install
 # @option --output! <FILE> New private plan file
 machine::plan() {
-  local config=$argc_config target=$argc_target disk=${argc_disk:-} output=$argc_output
+  local config=${argc_config:-} target=$argc_target disk=${argc_disk:-} output=$argc_output
   [[ $target =~ ^root@[a-zA-Z0-9_.:-]+$ ]] || fail 'invalid SSH target'
   [[ $output == /* && $output != *..* && ! -e $output && ! -L $output && -d $(dirname "$output") && ! -L $(dirname "$output") ]] || fail 'choose a new absolute private plan path'
+  if [[ -z $config ]]; then
+    config="$(dirname "$output")/machine.json"
+    configure_for_plan "$config" "$target" "$disk"
+    disk=$CONFIG_DISK
+  fi
   config_file "$config"
-  local tmp record inputs repo rev machine host branch generator check sha facter origin receipt checkout remote_machine state expected
+  local tmp record inputs repo rev machine host branch generator check sha facter origin receipt checkout remote_machine state expected config_disk
   repo=$(jq -r .repo "$config") rev=$(jq -r .revision "$config")
   machine=$(jq -r .machine "$config") host=$(jq -r .output "$config")
   branch=$(jq -r .branch "$config") receipt=$(jq -r .receipt "$config")
@@ -88,7 +191,10 @@ machine::plan() {
     echo "Reviewed update plan: $target $(jq -r .current <<<"$expected") -> $rev (no disk action). Saved $output"
     return
   fi
-  [[ $disk =~ ^/dev/[a-zA-Z0-9_./-]+$ && $disk != *..* ]] || fail 'fresh install requires an explicitly chosen whole /dev disk'
+  config_disk=$(jq -r '.disk // ""' "$config")
+  [[ -z $disk || -z $config_disk || $disk == "$config_disk" ]] || fail 'selected disk differs from reviewed configuration'
+  disk=${disk:-$config_disk}
+  [[ $disk =~ ^/dev/[a-zA-Z0-9_./-]+$ && $disk != *..* ]] || fail 'fresh install requires a reviewed whole /dev disk'
   tmp=$(mktemp -d "$(dirname "$output")/.moss-plan.XXXXXXXX")
   trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   record=$tmp/record.json inputs=$tmp/inputs.json
@@ -359,14 +465,14 @@ _argc_usage_machine_plan() {
     cat <<-'EOF'
 Inspect the target and build a non-destructive reviewed installation plan
 
-USAGE: moss machine plan [OPTIONS] --config <FILE> --output <FILE> <ROOT@HOST>
+USAGE: moss machine plan [OPTIONS] --output <FILE> <ROOT@HOST>
 
 ARGS:
   <ROOT@HOST>  Known rescue SSH target (verify host key independently)
 
 OPTIONS:
-      --config <FILE>  Private off-host desired configuration
-      --disk <DISK>    Explicit whole /dev disk for a fresh install; omit for an installed host
+      --config <FILE>  Existing private configuration; omit for guided creation
+      --disk <DISK>    Optional explicit whole disk; otherwise detect and select during guided install
       --output <FILE>  New private plan file
   -h, --help           Print help
 EOF
@@ -426,7 +532,7 @@ _argc_parse_machine_plan() {
         esac
     done
     _argc_require_params "error: the following required arguments were not provided:" \
-        'argc_config:--config <FILE>' 'argc_output:--output <FILE>'
+        'argc_output:--output <FILE>'
     if [[ -n "${_argc_action:-}" ]]; then
         $_argc_action
     else

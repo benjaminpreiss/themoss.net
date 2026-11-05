@@ -1,6 +1,6 @@
 # Developing the `moss` CLI
 
-Edit [`src/`](src/README.md), **not** [`bin/`](bin/README.md). The public entry point is `src/moss.sh`; command bodies live in `src/machine/{plan,apply,bootstrap}/`. `src/machine/deploy.sh` holds shared probe/staging/selector checks and private target protocol. `src/machine/update.nix` defines scheduled polling. The [GitHub App audit](../github-app-audit/README.md) is a separate package.
+Edit [`src/`](src/README.md), **not** [`bin/`](bin/README.md). The public entry point is `src/moss.sh`; command bodies live in `src/machine/{plan,apply,bootstrap}/`. The planner's `configure.sh` prompts for first-use off-host configuration when `--config` is omitted; it probes whole disks read-only and records a single candidate or asks the operator to select one. Erase consent remains in `apply`. `src/machine/deploy.sh` holds shared probe/staging/selector checks and private target protocol. `src/machine/update.nix` defines scheduled polling. The [GitHub App audit](../github-app-audit/README.md) is a separate package.
 
 ## Build and verify
 
@@ -11,7 +11,7 @@ bash tests/argc.sh
 bash tests/test.sh
 ```
 
-`build.sh` is the documentation generator: it expands `# @include` fragments, builds standalone argc executables, exports JSON specs under [`docs/spec/`](../../docs/spec/) and renders the [CLI reference](../../docs/cli-reference.md). `tests/argc.sh` independently rebuilds and compares those artifacts; it does not publish documentation. The target needs neither argc nor project sources at runtime. `.#operator` supplies runtime tools **without argc**; `.#dev` adds the pinned generator. Commit generated files with their sources; `tests/argc.sh` checks byte-for-byte drift. Opt into the Bash pre-commit hook with `git config core.hooksPath .githooks` (shared across linked worktrees).
+`build.sh` is the documentation generator: it expands `# @include` fragments, builds standalone argc executables, exports JSON specs under [`docs/spec/`](../../docs/spec/) and renders the [CLI reference](../../docs/cli-reference.md). `helpers/export-spec.sh` omits empty `author: null` metadata so otherwise identical argc versions produce the same committed JSON. `tests/argc.sh` independently rebuilds and compares those artifacts; it does not publish documentation. The target needs neither argc nor project sources at runtime. `.#operator` supplies runtime tools **without argc**; `.#dev` adds the pinned generator. Commit generated files with their sources; `tests/argc.sh` checks byte-for-byte drift. Opt into the Bash pre-commit hook with `git config core.hooksPath .githooks` (shared across linked worktrees).
 
 ## Generated specs
 

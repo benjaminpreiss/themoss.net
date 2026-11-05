@@ -518,6 +518,10 @@ esac
 # @arg record! <FILE> New private discovery record
 discover() { _machine_internal discover "$@"; }
 
+# @cmd Internal: list whole disks on a verified target without modifying it
+# @arg target! <ROOT@HOST> Verified root SSH target
+list-disks() { probe "$argc_target" | jq -ec '.disks'; }
+
 # @cmd Re-probe and compare the target with its discovery record
 # @arg record! <FILE> Private discovery record
 preflight() { _machine_internal preflight "$@"; }
@@ -674,6 +678,7 @@ USAGE: deploy <COMMAND>
 
 COMMANDS:
   discover            Create a private discovery record for one whole disk
+  list-disks          Internal: list whole disks on a verified target without modifying it
   preflight           Re-probe and compare the target with its discovery record
   install             Build and install an exact pushed revision; erases the selected disk
   bootstrap           Bootstrap the exact installed revision without erasing disks
@@ -698,7 +703,7 @@ _argc_version() {
 
 _argc_parse() {
     local _argc_key _argc_action
-    local _argc_subcmds="discover, preflight, install, bootstrap, adopt, transition, poll, deploy, inputs, plan-update, apply-reviewed, plan-build, prepare-transition, apply-transition"
+    local _argc_subcmds="discover, list-disks, preflight, install, bootstrap, adopt, transition, poll, deploy, inputs, plan-update, apply-reviewed, plan-build, prepare-transition, apply-transition"
     while [[ $_argc_index -lt $_argc_len ]]; do
         _argc_item="${argc__args[_argc_index]}"
         _argc_key="${_argc_item%%=*}"
@@ -718,6 +723,11 @@ _argc_parse() {
         discover)
             _argc_index=$((_argc_index + 1))
             _argc_action=_argc_parse_discover
+            break
+            ;;
+        list-disks)
+            _argc_index=$((_argc_index + 1))
+            _argc_action=_argc_parse_list-disks
             break
             ;;
         preflight)
@@ -790,6 +800,9 @@ _argc_parse() {
             case "$help_arg" in
             discover)
                 _argc_usage_discover
+                ;;
+            list-disks)
+                _argc_usage_list-disks
                 ;;
             preflight)
                 _argc_usage_preflight
@@ -912,6 +925,58 @@ _argc_parse_discover() {
             argc_record="${argc__positionals[values_index]}"
         else
             _argc_die "error: the required environments \`<FILE>\` were not provided"
+        fi
+    fi
+}
+
+_argc_usage_list-disks() {
+    cat <<-'EOF'
+Internal: list whole disks on a verified target without modifying it
+
+USAGE: deploy list-disks <ROOT@HOST>
+
+ARGS:
+  <ROOT@HOST>  Verified root SSH target
+EOF
+    exit
+}
+
+_argc_parse_list-disks() {
+    local _argc_key _argc_action
+    local _argc_subcmds=""
+    while [[ $_argc_index -lt $_argc_len ]]; do
+        _argc_item="${argc__args[_argc_index]}"
+        _argc_key="${_argc_item%%=*}"
+        case "$_argc_key" in
+        --help | -help | -h)
+            _argc_usage_list-disks
+            ;;
+        --)
+            _argc_dash="${#argc__positionals[@]}"
+            argc__positionals+=("${argc__args[@]:$((_argc_index + 1))}")
+            _argc_index=$_argc_len
+            break
+            ;;
+        *)
+            argc__positionals+=("$_argc_item")
+            _argc_index=$((_argc_index + 1))
+            ;;
+        esac
+    done
+    if [[ -n "${_argc_action:-}" ]]; then
+        $_argc_action
+    else
+        argc__fn=list-disks
+        if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
+            _argc_usage_list-disks
+        fi
+        _argc_match_positionals 0
+        local values_index values_size
+        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
+        if [[ -n "$values_index" ]]; then
+            argc_target="${argc__positionals[values_index]}"
+        else
+            _argc_die "error: the required environments \`<ROOT@HOST>\` were not provided"
         fi
     fi
 }

@@ -1,14 +1,19 @@
 # @cmd Inspect the target and build a non-destructive reviewed installation plan
 # @arg target! <ROOT@HOST> Known rescue SSH target (verify host key independently)
-# @option --config! <FILE> Private off-host desired configuration
-# @option --disk <DISK> Explicit whole /dev disk for a fresh install; omit for an installed host
+# @option --config <FILE> Existing private configuration; omit for guided creation
+# @option --disk <DISK> Optional explicit whole disk; otherwise detect and select during guided install
 # @option --output! <FILE> New private plan file
 machine::plan() {
-  local config=$argc_config target=$argc_target disk=${argc_disk:-} output=$argc_output
+  local config=${argc_config:-} target=$argc_target disk=${argc_disk:-} output=$argc_output
   [[ $target =~ ^root@[a-zA-Z0-9_.:-]+$ ]] || fail 'invalid SSH target'
   [[ $output == /* && $output != *..* && ! -e $output && ! -L $output && -d $(dirname "$output") && ! -L $(dirname "$output") ]] || fail 'choose a new absolute private plan path'
+  if [[ -z $config ]]; then
+    config="$(dirname "$output")/machine.json"
+    configure_for_plan "$config" "$target" "$disk"
+    disk=$CONFIG_DISK
+  fi
   config_file "$config"
-  local tmp record inputs repo rev machine host branch generator check sha facter origin receipt checkout remote_machine state expected
+  local tmp record inputs repo rev machine host branch generator check sha facter origin receipt checkout remote_machine state expected config_disk
   repo=$(jq -r .repo "$config") rev=$(jq -r .revision "$config")
   machine=$(jq -r .machine "$config") host=$(jq -r .output "$config")
   branch=$(jq -r .branch "$config") receipt=$(jq -r .receipt "$config")
@@ -36,7 +41,10 @@ machine::plan() {
     echo "Reviewed update plan: $target $(jq -r .current <<<"$expected") -> $rev (no disk action). Saved $output"
     return
   fi
-  [[ $disk =~ ^/dev/[a-zA-Z0-9_./-]+$ && $disk != *..* ]] || fail 'fresh install requires an explicitly chosen whole /dev disk'
+  config_disk=$(jq -r '.disk // ""' "$config")
+  [[ -z $disk || -z $config_disk || $disk == "$config_disk" ]] || fail 'selected disk differs from reviewed configuration'
+  disk=${disk:-$config_disk}
+  [[ $disk =~ ^/dev/[a-zA-Z0-9_./-]+$ && $disk != *..* ]] || fail 'fresh install requires a reviewed whole /dev disk'
   tmp=$(mktemp -d "$(dirname "$output")/.moss-plan.XXXXXXXX")
   trap "rm -rf -- $(printf '%q' "$tmp")" EXIT
   record=$tmp/record.json inputs=$tmp/inputs.json

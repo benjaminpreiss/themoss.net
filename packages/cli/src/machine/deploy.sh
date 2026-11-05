@@ -154,6 +154,10 @@ esac
 # @arg record! <FILE> New private discovery record
 discover() { _machine_internal discover "$@"; }
 
+# @cmd Internal: list whole disks on a verified target without modifying it
+# @arg target! <ROOT@HOST> Verified root SSH target
+list-disks() { probe "$argc_target" | jq -ec '.disks'; }
+
 # @cmd Re-probe and compare the target with its discovery record
 # @arg record! <FILE> Private discovery record
 preflight() { _machine_internal preflight "$@"; }
