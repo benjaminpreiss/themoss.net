@@ -1,8 +1,17 @@
 # @cmd Revalidate and apply a reviewed plan; installation erases the selected disk
-# @arg plan! <FILE> Private typed plan produced by machine plan
+# @arg file <PLAN> Explicit plan path (also accepted for existing scripts)
+# @option --plan <FILE> Explicit plan path instead of the latest managed plan
+# @option --target <ROOT@HOST> Choose a target when the checkout has multiple plans
 machine::apply() {
-  local plan=$argc_plan
+  local plan=${argc_file:-} override=${argc_plan:-} target_hint=${argc_target:-}
+  [[ -z $plan || -z $override ]] || fail 'pass either a positional plan or --plan, not both'
+  plan=${plan:-$override}
+  if [[ -z $plan ]]; then plan=$(moss_latest_plan "$target_hint"); fi
   private_file "$plan"
+  if [[ -n $target_hint ]]; then
+    [[ $(jq -er .target "$plan") == "$target_hint" ]] || fail 'plan target differs from --target'
+  fi
+  echo "Selected plan: $plan ($(jq -r .type "$plan") for $(jq -r .target "$plan"))" >&2
   if [[ $(jq -er '.type' "$plan") == update ]]; then
     jq -e 'type == "object" and .version == 1 and .type == "update" and
       ((keys - ["version","type","config","configSha256","target","origin","expected"]) == []) and

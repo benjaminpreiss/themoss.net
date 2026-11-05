@@ -51,6 +51,73 @@ remote_call() {
 # @cmd Operate on a machine
 machine() { :; }
 
+# Operator-local defaults. The Git root, not $HOME or the current subdirectory,
+# owns .moss. The caller can always pass explicit paths instead.
+moss_repo_root() {
+  local root
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || fail 'run from the consumer Git checkout or pass explicit paths'
+  [[ -d $root && ! -L $root ]] || fail 'unsafe consumer Git checkout'
+  realpath "$root"
+}
+moss_store() {
+  local root
+  root=$(moss_repo_root) || return
+  [[ -z $(git -C "$root" ls-files -- .moss) ]] || fail 'tracked .moss files; remove them from Git before planning'
+  if ! git -C "$root" check-ignore -q --no-index -- .moss/; then
+    fail "add .moss/ to $root/.gitignore (and commit that change) before using default storage"
+  fi
+  [[ ! -L $root/.moss ]] || fail 'linked .moss directory'
+  printf '%s/.moss\n' "$root"
+}
+moss_target_store() {
+  local target=$1
+  [[ $target =~ ^root@[a-zA-Z0-9_.:-]+$ ]] || fail 'invalid SSH target'
+  local store
+  store=$(moss_store) || return
+  printf '%s/%s\n' "$store" "$target"
+}
+moss_prepare_store() {
+  local dir=$1 root=${1%/.moss/*}
+  [[ ! -L $root/.moss && ! -L $dir && ! -L $dir/plans ]] || fail 'linked .moss path'
+  mkdir -p -m 700 -- "$dir/plans"
+  [[ $(stat -c %a "$root/.moss") == 700 && $(stat -c %a "$dir") == 700 && $(stat -c %a "$dir/plans") == 700 ]] || fail '.moss directories must be mode 700'
+}
+moss_new_plan_path() {
+  local dir=$1 name
+  name="$(date -u +%Y%m%dT%H%M%S)-$RANDOM-$RANDOM.json"
+  printf '%s/plans/%s\n' "$dir" "$name"
+}
+moss_publish_latest() {
+  local dir=$1 plan=$2 tmp
+  [[ ! -L $dir/latest && ( ! -e $dir/latest || ( -f $dir/latest && $(stat -c %a "$dir/latest") == 600 ) ) ]] || fail 'unsafe latest-plan reference'
+  tmp=$(mktemp "$dir/.latest.XXXXXXXX")
+  printf '%s\n' "$plan" >"$tmp"
+  chmod 600 "$tmp"
+  mv -fT -- "$tmp" "$dir/latest"
+}
+moss_latest_plan() {
+  local requested=${1:-} dir store latest plan found='' count=0
+  if [[ -n $requested ]]; then
+    dir=$(moss_target_store "$requested") || return
+  else
+    store=$(moss_store) || return
+    [[ -d $store && ! -L $store ]] || fail 'no .moss plans; pass an explicit plan'
+    for latest in "$store"/*/latest; do
+      [[ -e $latest || -L $latest ]] || continue
+      ((count += 1))
+      found=${latest%/latest}
+    done
+    ((count == 1)) || fail 'no unique latest plan; pass --target root@HOST or an explicit plan'
+    dir=$found
+  fi
+  [[ -d $dir && ! -L $dir && $(stat -c %a "$dir") == 700 ]] || fail 'unsafe target plan directory'
+  private_file "$dir/latest"
+  IFS= read -r plan <"$dir/latest" || fail 'empty latest-plan reference'
+  [[ -n $plan ]] || fail 'empty latest-plan reference'
+  private_file "$plan"
+  [[ $(jq -er .target "$plan") == "$(basename "$dir")" ]] || fail 'latest plan target differs from directory'
+  printf '%s\n' "$plan"
+}
 # Private guided authoring for a new off-host desired configuration. The
 # public command remains `plan`; selection is a proposal, never erase consent.
 configure_ask() {
@@ -75,9 +142,11 @@ configure_for_plan() {
   [[ -d $base && ! -L $base ]] || fail 'configuration directory missing or linked'
   printf 'Create %s (mode 600, off-host). No disk action occurs while answering.\n' "$file" >&2
   printf 'Do not enter secrets: machine.nix and facter.json may enter the Nix store.\n' >&2
-  configure_ask 'Consumer Git checkout (absolute path)' "$(pwd -P)"; repo=$CONFIG_ANSWER
+  configure_ask 'Consumer Git checkout (absolute path)' "$(moss_repo_root)"; repo=$CONFIG_ANSWER
   [[ $repo == /* && -d $repo && ! -L $repo ]] || fail 'invalid consumer checkout'
-  [[ $file != "$repo/"* ]] || fail 'create configuration outside the consumer checkout'
+  if [[ $file == "$(moss_repo_root)/.moss/"* ]]; then
+    [[ $repo == "$(moss_repo_root)" ]] || fail '.moss configuration must belong to this Git checkout'
+  fi
   rev=$(git -C "$repo" rev-parse --verify HEAD) || fail 'consumer checkout has no commit'
   configure_ask 'Full pushed commit' "$rev"; rev=$CONFIG_ANSWER
   [[ $rev =~ ^[0-9a-f]{40}$ ]] || fail 'expected a full commit SHA'
@@ -147,22 +216,31 @@ configure_for_plan() {
   rm -f -- "$tmp"
   trap - EXIT
   printf 'Created %s (mode 600); plan will now re-probe the selected target.\n' "$file" >&2
+  printf 'Keep .moss/ in .gitignore; do not commit operator-local plans, configuration or receipts.\n' >&2
 }
 # @cmd Inspect the target and build a non-destructive reviewed installation plan
 # @arg target! <ROOT@HOST> Known rescue SSH target (verify host key independently)
 # @option --config <FILE> Existing private configuration; omit for guided creation
 # @option --disk <DISK> Optional explicit whole disk; otherwise detect and select during guided install
-# @option --output! <FILE> New private plan file
+# @option --output <FILE> New private plan file; defaults to .moss for this target
 machine::plan() {
-  local config=${argc_config:-} target=$argc_target disk=${argc_disk:-} output=$argc_output
+  local config=${argc_config:-} target=$argc_target disk=${argc_disk:-} output=${argc_output:-} store=''
   [[ $target =~ ^root@[a-zA-Z0-9_.:-]+$ ]] || fail 'invalid SSH target'
+  if [[ -z $config || -z $output ]]; then
+    store=$(moss_target_store "$target") || return
+    moss_prepare_store "$store"
+    if [[ -z $config ]]; then config="$store/machine.json"; fi
+    if [[ -z $output ]]; then output=$(moss_new_plan_path "$store"); fi
+  fi
   [[ $output == /* && $output != *..* && ! -e $output && ! -L $output && -d $(dirname "$output") && ! -L $(dirname "$output") ]] || fail 'choose a new absolute private plan path'
-  if [[ -z $config ]]; then
-    config="$(dirname "$output")/machine.json"
+  if [[ ! -e $config && ! -L $config && -z ${argc_config:-} ]]; then
     configure_for_plan "$config" "$target" "$disk"
     disk=$CONFIG_DISK
   fi
   config_file "$config"
+  if [[ -n $store ]]; then
+    [[ $(jq -r .repo "$config") == "$(moss_repo_root)" ]] || fail 'default .moss storage must belong to the consumer checkout'
+  fi
   local tmp record inputs repo rev machine host branch generator check sha facter origin receipt checkout remote_machine state expected config_disk
   repo=$(jq -r .repo "$config") rev=$(jq -r .revision "$config")
   machine=$(jq -r .machine "$config") host=$(jq -r .output "$config")
@@ -188,6 +266,7 @@ machine::plan() {
     chmod 600 "$tmp/plan.json"
     [[ ! -e $output && ! -L $output ]] || fail 'plan appeared during evaluation'
     ln -- "$tmp/plan.json" "$output" || fail 'cannot publish plan'
+    if [[ -n $store ]]; then moss_publish_latest "$store" "$output"; fi
     echo "Reviewed update plan: $target $(jq -r .current <<<"$expected") -> $rev (no disk action). Saved $output"
     return
   fi
@@ -214,14 +293,24 @@ machine::plan() {
   chmod 600 "$tmp/plan.json"
   [[ ! -e $output && ! -L $output ]] || fail 'plan appeared during evaluation'
   ln -- "$tmp/plan.json" "$output" || fail 'cannot publish plan'
+  if [[ -n $store ]]; then moss_publish_latest "$store" "$output"; fi
   echo "Installation plan saved: $output (review before applying; not an authorization to erase)"
 }
 
 # @cmd Revalidate and apply a reviewed plan; installation erases the selected disk
-# @arg plan! <FILE> Private typed plan produced by machine plan
+# @arg file <PLAN> Explicit plan path (also accepted for existing scripts)
+# @option --plan <FILE> Explicit plan path instead of the latest managed plan
+# @option --target <ROOT@HOST> Choose a target when the checkout has multiple plans
 machine::apply() {
-  local plan=$argc_plan
+  local plan=${argc_file:-} override=${argc_plan:-} target_hint=${argc_target:-}
+  [[ -z $plan || -z $override ]] || fail 'pass either a positional plan or --plan, not both'
+  plan=${plan:-$override}
+  if [[ -z $plan ]]; then plan=$(moss_latest_plan "$target_hint"); fi
   private_file "$plan"
+  if [[ -n $target_hint ]]; then
+    [[ $(jq -er .target "$plan") == "$target_hint" ]] || fail 'plan target differs from --target'
+  fi
+  echo "Selected plan: $plan ($(jq -r .type "$plan") for $(jq -r .target "$plan"))" >&2
   if [[ $(jq -er '.type' "$plan") == update ]]; then
     jq -e 'type == "object" and .version == 1 and .type == "update" and
       ((keys - ["version","type","config","configSha256","target","origin","expected"]) == []) and
@@ -284,10 +373,16 @@ machine::apply() {
 
 # @cmd Resume first-boot handoff after independently verifying the new SSH host key
 # @arg receipt! <FILE> Off-host installation receipt
-# @option --config! <FILE> Original private machine configuration
+# @option --config <FILE> Original private machine configuration; defaults to .moss for the receipt target
 machine::bootstrap() {
-  local receipt=$argc_receipt config=$argc_config
-  private_file "$receipt"; config_file "$config"
+  local receipt=$argc_receipt config=${argc_config:-} target store
+  private_file "$receipt"
+  if [[ -z $config ]]; then
+    target=$(jq -er .target "$receipt") || fail 'invalid receipt target'
+    store=$(moss_target_store "$target") || return
+    config="$store/machine.json"
+  fi
+  config_file "$config"
   local repo machine checkout remote_machine state
   repo=$(jq -r .repo "$config") machine=$(jq -r .machine "$config")
   checkout=$(jq -r .remoteCheckout "$config") remote_machine=$(jq -r .remoteMachine "$config") state=$(jq -r .remoteState "$config")
@@ -465,7 +560,7 @@ _argc_usage_machine_plan() {
     cat <<-'EOF'
 Inspect the target and build a non-destructive reviewed installation plan
 
-USAGE: moss machine plan [OPTIONS] --output <FILE> <ROOT@HOST>
+USAGE: moss machine plan [OPTIONS] <ROOT@HOST>
 
 ARGS:
   <ROOT@HOST>  Known rescue SSH target (verify host key independently)
@@ -473,7 +568,7 @@ ARGS:
 OPTIONS:
       --config <FILE>  Existing private configuration; omit for guided creation
       --disk <DISK>    Optional explicit whole disk; otherwise detect and select during guided install
-      --output <FILE>  New private plan file
+      --output <FILE>  New private plan file; defaults to .moss for this target
   -h, --help           Print help
 EOF
     exit
@@ -531,8 +626,6 @@ _argc_parse_machine_plan() {
             ;;
         esac
     done
-    _argc_require_params "error: the following required arguments were not provided:" \
-        'argc_output:--output <FILE>'
     if [[ -n "${_argc_action:-}" ]]; then
         $_argc_action
     else
@@ -555,10 +648,15 @@ _argc_usage_machine_apply() {
     cat <<-'EOF'
 Revalidate and apply a reviewed plan; installation erases the selected disk
 
-USAGE: moss machine apply <FILE>
+USAGE: moss machine apply [OPTIONS] [PLAN]
 
 ARGS:
-  <FILE>  Private typed plan produced by machine plan
+  [PLAN]  Explicit plan path (also accepted for existing scripts)
+
+OPTIONS:
+      --plan <FILE>         Explicit plan path instead of the latest managed plan
+      --target <ROOT@HOST>  Choose a target when the checkout has multiple plans
+  -h, --help                Print help
 EOF
     exit
 }
@@ -579,7 +677,28 @@ _argc_parse_machine_apply() {
             _argc_index=$_argc_len
             break
             ;;
+        --plan)
+            _argc_take_args "--plan <FILE>" 1 1 "-" ""
+            _argc_index=$((_argc_index + _argc_take_args_len + 1))
+            if [[ -z "${argc_plan:-}" ]]; then
+                argc_plan="${_argc_take_args_values[0]:-}"
+            else
+                _argc_die "error: the argument \`--plan\` cannot be used multiple times"
+            fi
+            ;;
+        --target)
+            _argc_take_args "--target <ROOT@HOST>" 1 1 "-" ""
+            _argc_index=$((_argc_index + _argc_take_args_len + 1))
+            if [[ -z "${argc_target:-}" ]]; then
+                argc_target="${_argc_take_args_values[0]:-}"
+            else
+                _argc_die "error: the argument \`--target\` cannot be used multiple times"
+            fi
+            ;;
         *)
+            if _argc_maybe_flag_option "-" "$_argc_item"; then
+                _argc_die "error: unexpected argument \`$_argc_key\` found"
+            fi
             argc__positionals+=("$_argc_item")
             _argc_index=$((_argc_index + 1))
             ;;
@@ -596,9 +715,7 @@ _argc_parse_machine_apply() {
         local values_index values_size
         IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
         if [[ -n "$values_index" ]]; then
-            argc_plan="${argc__positionals[values_index]}"
-        else
-            _argc_die "error: the required environments \`<FILE>\` were not provided"
+            argc_file="${argc__positionals[values_index]}"
         fi
     fi
 }
@@ -607,13 +724,13 @@ _argc_usage_machine_bootstrap() {
     cat <<-'EOF'
 Resume first-boot handoff after independently verifying the new SSH host key
 
-USAGE: moss machine bootstrap --config <FILE> <FILE>
+USAGE: moss machine bootstrap [OPTIONS] <FILE>
 
 ARGS:
   <FILE>  Off-host installation receipt
 
 OPTIONS:
-      --config <FILE>  Original private machine configuration
+      --config <FILE>  Original private machine configuration; defaults to .moss for the receipt target
   -h, --help           Print help
 EOF
     exit
@@ -653,8 +770,6 @@ _argc_parse_machine_bootstrap() {
             ;;
         esac
     done
-    _argc_require_params "error: the following required arguments were not provided:" \
-        'argc_config:--config <FILE>'
     if [[ -n "${_argc_action:-}" ]]; then
         $_argc_action
     else
@@ -752,20 +867,6 @@ _argc_match_positionals() {
     if [[ $params_len -gt 0 ]] && [[ $_argc_match_positionals_len -gt $params_len ]]; then
         local index="${_argc_match_positionals_values[params_len]%%:*}"
         _argc_die "error: unexpected argument \`${argc__positionals[index]}\` found"
-    fi
-}
-
-_argc_require_params() {
-    local message="$1" missed_envs="" item name render_name
-    for item in "${@:2}"; do
-        name="${item%%:*}"
-        render_name="${item##*:}"
-        if [[ -z "${!name:-}" ]]; then
-            missed_envs="$missed_envs"$'\n'"  $render_name"
-        fi
-    done
-    if [[ -n "${missed_envs}" ]]; then
-        _argc_die "$message$missed_envs"
     fi
 }
 

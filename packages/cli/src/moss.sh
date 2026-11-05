@@ -51,6 +51,7 @@ remote_call() {
 # @cmd Operate on a machine
 machine() { :; }
 
+# @include machine/storage.sh
 # @include machine/plan/configure.sh
 # @include machine/plan/cli.sh
 

@@ -1,6 +1,6 @@
 # Developing the `moss` CLI
 
-Edit [`src/`](src/README.md), **not** [`bin/`](bin/README.md). The public entry point is `src/moss.sh`; command bodies live in `src/machine/{plan,apply,bootstrap}/`. The planner's `configure.sh` prompts for first-use off-host configuration when `--config` is omitted; it probes whole disks read-only and records a single candidate or asks the operator to select one. Erase consent remains in `apply`. `src/machine/deploy.sh` holds shared probe/staging/selector checks and private target protocol. `src/machine/update.nix` defines scheduled polling. The [GitHub App audit](../github-app-audit/README.md) is a separate package.
+Edit [`src/`](src/README.md), **not** [`bin/`](bin/README.md). The public entry point is `src/moss.sh`; command bodies live in `src/machine/{plan,apply,bootstrap}/`. The shared `src/machine/storage.sh` resolves Git-root `.moss/<target>/` defaults, enforces Git-ignore and owns the per-target latest-plan reference. The planner's `configure.sh` prompts for first-use operator-local configuration when the default is missing; it probes whole disks read-only and records a single candidate or asks the operator to select one. Erase consent remains in `apply`. `src/machine/deploy.sh` holds shared probe/staging/selector checks and private target protocol. `src/machine/update.nix` defines scheduled polling. The [GitHub App audit](../github-app-audit/README.md) is a separate package.
 
 ## Build and verify
 

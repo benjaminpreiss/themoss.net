@@ -26,7 +26,7 @@ Inspect the target and build a non-destructive reviewed installation plan
 | --- | --- | --- |
 | `--config <FILE>` | no | Existing private configuration; omit for guided creation |
 | `--disk <DISK>` | no | Optional explicit whole disk; otherwise detect and select during guided install |
-| `--output <FILE>` | yes | New private plan file |
+| `--output <FILE>` | no | New private plan file; defaults to .moss for this target |
 
 #### `moss machine apply`
 
@@ -34,7 +34,12 @@ Revalidate and apply a reviewed plan; installation erases the selected disk
 
 | Argument | Required | Description |
 | --- | --- | --- |
-| `PLAN` | yes | Private typed plan produced by machine plan |
+| `FILE` | no | Explicit plan path (also accepted for existing scripts) |
+
+| Option | Required | Description |
+| --- | --- | --- |
+| `--plan <FILE>` | no | Explicit plan path instead of the latest managed plan |
+| `--target <ROOT@HOST>` | no | Choose a target when the checkout has multiple plans |
 
 #### `moss machine bootstrap`
 
@@ -46,4 +51,4 @@ Resume first-boot handoff after independently verifying the new SSH host key
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `--config <FILE>` | yes | Original private machine configuration |
+| `--config <FILE>` | no | Original private machine configuration; defaults to .moss for the receipt target |

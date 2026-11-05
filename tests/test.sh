@@ -62,6 +62,7 @@ git -C "$tmp/repo" config user.email test@example.invalid
 git -C "$tmp/repo" config user.name Test
 printf '{}\n' >"$tmp/repo/flake.lock"
 printf '{ outputs = _: { }; }\n' >"$tmp/repo/flake.nix"
+printf '.moss/\n' >"$tmp/repo/.gitignore"
 git -C "$tmp/repo" add .; git -C "$tmp/repo" commit -qm initial
 first=$(git -C "$tmp/repo" rev-parse HEAD)
 # local bare origin gives real fetch/ancestry behavior, with no network.
@@ -73,30 +74,57 @@ git -C "$tmp/repo" push -q origin HEAD:main
 # The public planner can guide an operator through creating private desired
 # configuration. One detected whole disk becomes a proposal, never erase consent.
 public="$root/packages/cli/bin/moss"
-printf '%s\n' "$tmp/repo" '' main test "$tmp/machine" '' '' '' '' '' '' '' y | \
-  MOSS_TEST_INPUT=1 bash "$public" machine plan root@example --output "$tmp/interactive-plan.json" >/dev/null
-[[ $(stat -c %a "$tmp/machine.json") == 600 && $(jq -r .type "$tmp/interactive-plan.json") == install ]]
+git init -q "$tmp/unignored"
+(cd "$tmp/unignored"; ! bash "$public" machine plan root@example </dev/null >/dev/null 2>&1)
+[[ ! -e $tmp/unignored/.moss ]]
+managed="$tmp/repo/.moss/root@example"
+# Defaults resolve from the Git ancestor, including when called in a subdirectory.
+(cd "$tmp/repo"; printf '%s\n' '' '' main test "$tmp/machine" '' '' '' '' '' '' '' y | \
+  MOSS_TEST_INPUT=1 bash "$public" machine plan root@example >/dev/null)
+interactive_plan=$(<"$managed/latest")
+[[ $(stat -c %a "$managed/machine.json") == 600 && $(stat -c %a "$managed") == 700 && $(jq -r .type "$interactive_plan") == install ]]
+[[ $interactive_plan == "$managed/plans/"* && $(stat -c %a "$managed/latest") == 600 ]]
 jq -e --arg repo "$tmp/repo" --arg rev "$first" --arg machine "$tmp/machine" \
-  '.repo == $repo and .revision == $rev and .branch == "main" and .output == "test" and .machine == $machine and .disk == "/dev/vda"' "$tmp/machine.json" >/dev/null
+  '.repo == $repo and .revision == $rev and .branch == "main" and .output == "test" and .machine == $machine and .disk == "/dev/vda"' "$managed/machine.json" >/dev/null
 ! grep -q ERASE "$tmp/log"
-! bash "$public" machine plan root@example --config "$tmp/machine.json" --disk /dev/vdb --output "$tmp/mismatch-plan.json" >/dev/null 2>&1
+(cd "$tmp/repo"; ! bash "$public" machine plan root@example --disk /dev/vdb --output "$tmp/mismatch-plan.json" >/dev/null 2>&1)
 [[ ! -e $tmp/mismatch-plan.json ]]
-! MOSS_TEST_INPUT=1 bash "$public" machine plan root@example --disk /dev/vda --output "$tmp/repeat-plan.json" </dev/null >/dev/null 2>&1
-[[ ! -e $tmp/repeat-plan.json ]]
+mkdir "$tmp/repo/subdir"
+(cd "$tmp/repo/subdir"; bash "$public" machine plan root@example >/dev/null)
+[[ $(<"$managed/latest") != "$interactive_plan" && $(jq -r .config "$(<"$managed/latest")") == "$managed/machine.json" ]]
+(cd "$tmp/repo"; bash "$public" machine plan root@example --output "$tmp/custom-plan.json" >/dev/null)
+[[ $(<"$managed/latest") == "$tmp/custom-plan.json" ]]
+(cd "$tmp/repo"; ! bash "$public" machine plan root@example --output "$tmp/custom-plan.json" >/dev/null 2>&1)
+[[ $(<"$managed/latest") == "$tmp/custom-plan.json" ]]
+mv "$managed/latest" "$managed/latest.saved"
+ln -s "$interactive_plan" "$managed/latest"
+(cd "$tmp/repo"; ! bash "$public" machine apply --target root@example </dev/null >/dev/null 2>&1)
+rm "$managed/latest"; mv "$managed/latest.saved" "$managed/latest"
+chmod 644 "$managed/latest"
+(cd "$tmp/repo"; ! bash "$public" machine apply --target root@example </dev/null >/dev/null 2>&1)
+chmod 600 "$managed/latest"
+# A second target has a distinct config and must not silently replace the first.
 mkdir "$tmp/cancelled"
-! printf '%s\n' "$tmp/repo" | MOSS_TEST_INPUT=1 bash "$public" machine plan root@example --disk /dev/vda --output "$tmp/cancelled/plan.json" >/dev/null 2>&1
-[[ ! -e $tmp/cancelled/machine.json && ! -e $tmp/cancelled/plan.json ]]
+(cd "$tmp/repo"; ! printf '%s\n' '' | MOSS_TEST_INPUT=1 bash "$public" machine plan root@cancelled --output "$tmp/cancelled/plan.json" >/dev/null 2>&1)
+[[ ! -e $tmp/repo/.moss/root@cancelled/machine.json && ! -e $tmp/cancelled/plan.json ]]
 # Multiple whole disks require a numbered human choice; never guess.
 printf '%s\n' x86_64 bios '[{"dev":"eth0"}]' \
   '{"blockdevices":[{"path":"/dev/vda","type":"disk","size":1000,"model":"A","serial":"123"},{"path":"/dev/vdb","type":"disk","size":2000,"model":"B","serial":"456"}]}' >"$tmp/probe"
-mkdir "$tmp/multiple"
-printf '%s\n' "$tmp/repo" '' main test "$tmp/machine" '' '' '' '' '' '' '' 2 y | \
-  MOSS_TEST_INPUT=1 bash "$public" machine plan root@example --output "$tmp/multiple/plan.json" >/dev/null
-[[ $(jq -r .disk "$tmp/multiple/machine.json") == /dev/vdb && $(jq -r .disk "$tmp/multiple/plan.json") == /dev/vdb ]]
+printf '%s\n' '' '' main test "$tmp/machine" '' '' '' '' '' '' '' 2 y | \
+  (cd "$tmp/repo"; MOSS_TEST_INPUT=1 bash "$public" machine plan root@other >/dev/null)
+other="$tmp/repo/.moss/root@other"
+[[ $(jq -r .disk "$other/machine.json") == /dev/vdb && $(jq -r .disk "$(<"$other/latest")") == /dev/vdb ]]
+(cd "$tmp/repo"; ! bash "$public" machine apply </dev/null >/dev/null 2>&1) # ambiguous targets
+(cd "$tmp/repo"; ! printf 'NO\n' | bash "$public" machine apply --target root@example >/dev/null 2>&1)
+(cd "$tmp/repo"; ! printf 'NO\n' | bash "$public" machine apply --plan "$interactive_plan" --target root@example >/dev/null 2>&1)
+(cd "$tmp/repo"; ! bash "$public" machine apply "$interactive_plan" --plan "$tmp/custom-plan.json" >/dev/null 2>&1)
+[[ $(<"$managed/latest") != "$interactive_plan" ]] # manual override never changes latest
+! grep -q ERASE "$tmp/log"
 mkdir "$tmp/no-choice"
-printf '%s\n' "$tmp/repo" '' main test "$tmp/machine" '' '' '' '' '' '' '' 0 | \
-  MOSS_TEST_INPUT=1 bash "$public" machine plan root@example --output "$tmp/no-choice/plan.json" >/dev/null 2>&1 && exit 1
-[[ ! -e $tmp/no-choice/machine.json && ! -e $tmp/no-choice/plan.json ]]
+(cd "$tmp/repo"; ! printf '%s\n' '' '' main test "$tmp/machine" '' '' '' '' '' '' '' 0 | \
+  MOSS_TEST_INPUT=1 bash "$public" machine plan root@nochoice --output "$tmp/no-choice/plan.json" >/dev/null 2>&1)
+[[ ! -e $tmp/repo/.moss/root@nochoice/machine.json && ! -e $tmp/no-choice/plan.json ]]
+(cd "$tmp/repo"; ! bash "$public" machine apply --target root@nochoice </dev/null >/dev/null 2>&1)
 printf '%s\n' x86_64 bios '[{"dev":"eth0"}]' \
   '{"blockdevices":[{"path":"/dev/vda","type":"disk","size":1000,"model":"A","serial":"123"}]}' >"$tmp/probe"
 ! grep -q ERASE "$tmp/log"
@@ -351,6 +379,13 @@ printf 'ERASE /dev/vda\n' | bash "$public_cli" machine apply "$plan" >/dev/null
 MOCK_HOST_VERIFIED=0 bash "$public_cli" machine bootstrap "$public_receipt" --config "$config" >/dev/null 2>&1 && exit 1
 MOCK_HOST_VERIFIED=1 bash "$public_cli" machine bootstrap "$public_receipt" --config "$config"
 bash "$public_cli" machine bootstrap "$public_receipt" --config "$config"
+# Bootstrap can find the ignored operator-local configuration from the receipt target.
+cp "$public_receipt" "$managed/install-receipt.json"
+jq --arg remote "$tmp/public-remote" \
+  '.remoteCheckout = ($remote+"/repo") | .remoteMachine = ($remote+"/machine") | .remoteState = ($remote+"/state")' \
+  "$managed/machine.json" >"$tmp/managed-config"
+mv "$tmp/managed-config" "$managed/machine.json"; chmod 600 "$managed/machine.json"
+(cd "$tmp/repo"; bash "$public_cli" machine bootstrap "$managed/install-receipt.json")
 # A separately reviewed transition changes the initial commit pin to branch
 # tracking. Planning must never silently make that policy choice itself.
 bash "$cli" transition "$public_receipt" root@example "$tmp/public-remote/repo" main "$tmp/machine" "$tmp/public-remote/machine" test "$tmp/public-remote/state" >/dev/null
@@ -363,16 +398,19 @@ jq --arg rev "$update_rev" '.revision = $rev' "$config" >"$tmp/new-config"
 mv "$tmp/new-config" "$config"; chmod 600 "$config"
 update_plan="$tmp/update-plan.json"
 bash "$public_cli" machine plan root@example --config "$config" --output "$update_plan"
+(cd "$tmp/repo"; bash "$public_cli" machine plan root@example --config "$config" >/dev/null)
+[[ $(jq -r .type "$(<"$managed/latest")") == update ]]
 jq -e --arg next "$update_rev" '.type == "update" and .expected.next == $next' "$update_plan" >/dev/null
 # Tip movement after planning must not silently deploy the newer commit.
 git -C "$tmp/repo" commit --allow-empty -qm 'moved after review'
 git -C "$tmp/repo" push -q origin HEAD:main
 : >"$tmp/log"
 ! bash "$public_cli" machine apply "$update_plan" >/dev/null 2>&1
+(cd "$tmp/repo"; ! bash "$public_cli" machine apply --target root@example >/dev/null 2>&1)
 [[ $(<"$tmp/public-remote/state/revision") == "$first" ]]
 ! grep -q 'switch\|ERASE' "$tmp/log"
 git -C "$tmp/repo" push -q --force origin "$update_rev":main
-bash "$public_cli" machine apply "$update_plan"
+(cd "$tmp/repo"; bash "$public_cli" machine apply --target root@example)
 [[ $(<"$tmp/public-remote/state/revision") == "$update_rev" ]]
 ! grep -q ERASE "$tmp/log"
 ! bash "$public_cli" machine apply "$update_plan" >/dev/null 2>&1

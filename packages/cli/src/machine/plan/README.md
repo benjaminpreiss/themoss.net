@@ -4,7 +4,9 @@
 
 ## Desired configuration: `machine.json`
 
-On first use, omit `--config`: `plan` asks for the values below, offers defaults where possible, and creates `machine.json` beside the requested plan. It probes whole disks read-only, records the only candidate or prompts you to choose from a numbered list, and asks you to review the JSON before saving. Neither this file nor an existing plan is overwritten. Later runs can pass `--config /absolute/path/machine.json`; automation can supply its own JSON with the same fields.
+By default, from anywhere in the consumer Git checkout, `plan root@HOST` finds the Git root and uses `<git-root>/.moss/root@HOST/machine.json`. On first use it asks for the values below, offers defaults where possible, probes whole disks read-only, records the only candidate or prompts you to choose from a numbered list, and asks you to review the JSON before saving. Later runs reuse that file automatically. Files for different SSH targets have separate directories. Neither a configuration nor an existing plan is overwritten. `--config /absolute/path/machine.json` overrides the lookup; automation can supply its own JSON with the same fields.
+
+**Before first use, add `.moss/` to the consumer repo's `.gitignore` and commit it.** The CLI refuses default storage if `.moss/` is not ignored or contains tracked files, and prints an instruction. The directory is mode `0700`, its JSON files mode `0600`; back up the installation receipt separately. This is operator-local state inside the checkout, not data in the Git index or Nix store.
 
 | Property | Meaning |
 | --- | --- |
@@ -22,7 +24,9 @@ The configuration contains **paths and choices, not secret contents**. Do not co
 
 ## Generated plan: `--output PLAN`
 
-`plan` writes a new, mode-`0600` JSON file at the absolute `--output` path. Every plan has `version: 1`, `type`, the absolute `config` path, `configSha256`, `target` and `origin` (the consumer Git remote). There are exactly two recognized types:
+By default, `plan` writes a new, mode-`0600` JSON file under `<git-root>/.moss/root@HOST/plans/` and atomically updates `<git-root>/.moss/root@HOST/latest` to contain its absolute path. The reference is per-target and changes only after a successful plan; no plan is overwritten. `moss machine apply` uses it when exactly one target has a latest plan in the checkout. With multiple targets, specify `apply --target root@HOST`. Use `apply --plan /absolute/path/plan.json` (or the original positional plan argument) to select another plan explicitly; this does not change `latest`. `plan --output /absolute/path/plan.json` chooses a new path instead; when using the default config, it still updates `latest`.
+
+Every plan has `version: 1`, `type`, the absolute `config` path, `configSha256`, `target` and `origin` (the consumer Git remote). There are exactly two recognized types:
 
 | `type` | Additional properties | What they bind |
 | --- | --- | --- |

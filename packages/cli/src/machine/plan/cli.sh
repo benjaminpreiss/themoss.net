@@ -2,17 +2,25 @@
 # @arg target! <ROOT@HOST> Known rescue SSH target (verify host key independently)
 # @option --config <FILE> Existing private configuration; omit for guided creation
 # @option --disk <DISK> Optional explicit whole disk; otherwise detect and select during guided install
-# @option --output! <FILE> New private plan file
+# @option --output <FILE> New private plan file; defaults to .moss for this target
 machine::plan() {
-  local config=${argc_config:-} target=$argc_target disk=${argc_disk:-} output=$argc_output
+  local config=${argc_config:-} target=$argc_target disk=${argc_disk:-} output=${argc_output:-} store=''
   [[ $target =~ ^root@[a-zA-Z0-9_.:-]+$ ]] || fail 'invalid SSH target'
+  if [[ -z $config || -z $output ]]; then
+    store=$(moss_target_store "$target") || return
+    moss_prepare_store "$store"
+    if [[ -z $config ]]; then config="$store/machine.json"; fi
+    if [[ -z $output ]]; then output=$(moss_new_plan_path "$store"); fi
+  fi
   [[ $output == /* && $output != *..* && ! -e $output && ! -L $output && -d $(dirname "$output") && ! -L $(dirname "$output") ]] || fail 'choose a new absolute private plan path'
-  if [[ -z $config ]]; then
-    config="$(dirname "$output")/machine.json"
+  if [[ ! -e $config && ! -L $config && -z ${argc_config:-} ]]; then
     configure_for_plan "$config" "$target" "$disk"
     disk=$CONFIG_DISK
   fi
   config_file "$config"
+  if [[ -n $store ]]; then
+    [[ $(jq -r .repo "$config") == "$(moss_repo_root)" ]] || fail 'default .moss storage must belong to the consumer checkout'
+  fi
   local tmp record inputs repo rev machine host branch generator check sha facter origin receipt checkout remote_machine state expected config_disk
   repo=$(jq -r .repo "$config") rev=$(jq -r .revision "$config")
   machine=$(jq -r .machine "$config") host=$(jq -r .output "$config")
@@ -38,6 +46,7 @@ machine::plan() {
     chmod 600 "$tmp/plan.json"
     [[ ! -e $output && ! -L $output ]] || fail 'plan appeared during evaluation'
     ln -- "$tmp/plan.json" "$output" || fail 'cannot publish plan'
+    if [[ -n $store ]]; then moss_publish_latest "$store" "$output"; fi
     echo "Reviewed update plan: $target $(jq -r .current <<<"$expected") -> $rev (no disk action). Saved $output"
     return
   fi
@@ -64,5 +73,6 @@ machine::plan() {
   chmod 600 "$tmp/plan.json"
   [[ ! -e $output && ! -L $output ]] || fail 'plan appeared during evaluation'
   ln -- "$tmp/plan.json" "$output" || fail 'cannot publish plan'
+  if [[ -n $store ]]; then moss_publish_latest "$store" "$output"; fi
   echo "Installation plan saved: $output (review before applying; not an authorization to erase)"
 }

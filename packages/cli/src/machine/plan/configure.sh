@@ -22,9 +22,11 @@ configure_for_plan() {
   [[ -d $base && ! -L $base ]] || fail 'configuration directory missing or linked'
   printf 'Create %s (mode 600, off-host). No disk action occurs while answering.\n' "$file" >&2
   printf 'Do not enter secrets: machine.nix and facter.json may enter the Nix store.\n' >&2
-  configure_ask 'Consumer Git checkout (absolute path)' "$(pwd -P)"; repo=$CONFIG_ANSWER
+  configure_ask 'Consumer Git checkout (absolute path)' "$(moss_repo_root)"; repo=$CONFIG_ANSWER
   [[ $repo == /* && -d $repo && ! -L $repo ]] || fail 'invalid consumer checkout'
-  [[ $file != "$repo/"* ]] || fail 'create configuration outside the consumer checkout'
+  if [[ $file == "$(moss_repo_root)/.moss/"* ]]; then
+    [[ $repo == "$(moss_repo_root)" ]] || fail '.moss configuration must belong to this Git checkout'
+  fi
   rev=$(git -C "$repo" rev-parse --verify HEAD) || fail 'consumer checkout has no commit'
   configure_ask 'Full pushed commit' "$rev"; rev=$CONFIG_ANSWER
   [[ $rev =~ ^[0-9a-f]{40}$ ]] || fail 'expected a full commit SHA'
@@ -94,4 +96,5 @@ configure_for_plan() {
   rm -f -- "$tmp"
   trap - EXIT
   printf 'Created %s (mode 600); plan will now re-probe the selected target.\n' "$file" >&2
+  printf 'Keep .moss/ in .gitignore; do not commit operator-local plans, configuration or receipts.\n' >&2
 }

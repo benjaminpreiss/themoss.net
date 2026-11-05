@@ -147,12 +147,12 @@
               "id": "output",
               "long_name": "--output",
               "short_name": null,
-              "describe": "New private plan file",
+              "describe": "New private plan file; defaults to .moss for this target",
               "flag": false,
               "notations": [
                 "FILE"
               ],
-              "required": true,
+              "required": false,
               "multiple_values": false,
               "multiple_occurs": false,
               "num_args": [
@@ -217,10 +217,60 @@
           "aliases": [],
           "flag_options": [
             {
+              "id": "plan",
+              "long_name": "--plan",
+              "short_name": null,
+              "describe": "Explicit plan path instead of the latest managed plan",
+              "flag": false,
+              "notations": [
+                "FILE"
+              ],
+              "required": false,
+              "multiple_values": false,
+              "multiple_occurs": false,
+              "num_args": [
+                1,
+                1
+              ],
+              "delimiter": null,
+              "terminated": false,
+              "prefixed": false,
+              "assigned": false,
+              "default": null,
+              "choice": null,
+              "env": null,
+              "inherited": false
+            },
+            {
+              "id": "target",
+              "long_name": "--target",
+              "short_name": null,
+              "describe": "Choose a target when the checkout has multiple plans",
+              "flag": false,
+              "notations": [
+                "ROOT@HOST"
+              ],
+              "required": false,
+              "multiple_values": false,
+              "multiple_occurs": false,
+              "num_args": [
+                1,
+                1
+              ],
+              "delimiter": null,
+              "terminated": false,
+              "prefixed": false,
+              "assigned": false,
+              "default": null,
+              "choice": null,
+              "env": null,
+              "inherited": false
+            },
+            {
               "id": "help",
               "long_name": "--help",
               "short_name": "-h",
-              "describe": "",
+              "describe": "Print help",
               "flag": true,
               "notations": [],
               "required": false,
@@ -242,10 +292,10 @@
           ],
           "positionals": [
             {
-              "id": "plan",
-              "describe": "Private typed plan produced by machine plan",
-              "notation": "FILE",
-              "required": true,
+              "id": "file",
+              "describe": "Explicit plan path (also accepted for existing scripts)",
+              "notation": "PLAN",
+              "required": false,
               "multiple": false,
               "delimiter": null,
               "terminated": false,
@@ -268,12 +318,12 @@
               "id": "config",
               "long_name": "--config",
               "short_name": null,
-              "describe": "Original private machine configuration",
+              "describe": "Original private machine configuration; defaults to .moss for the receipt target",
               "flag": false,
               "notations": [
                 "FILE"
               ],
-              "required": true,
+              "required": false,
               "multiple_values": false,
               "multiple_occurs": false,
               "num_args": [

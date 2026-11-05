@@ -16,7 +16,7 @@ Ensure `~/.local/bin` is on your `PATH`, then try `moss machine plan --help`. Th
 
 - `bash`, `curl` and `tar` for the download; GNU coreutils, `git`, `jq`, SSH, Nix and `nixos-anywhere` for machine operations.
 - A Linux or macOS operator computer. The [machine guide](src/machine/README.md#operator-environment) explains the pinned Nix shell and macOS Linux-builder requirement.
-- Private configuration and receipts **off the target**. See [plan, apply and bootstrap](src/machine/README.md#install-a-machine) for disk and SSH-key checks.
+- Add `.moss/` to the **consumer checkout's** `.gitignore` before first use. Default operator-local configuration, plans and receipts stay there, **off the target and out of Git**. See [plan, apply and bootstrap](src/machine/README.md#install-a-machine) for disk and SSH-key checks.
 
 For command flags, see the [generated CLI reference](../../docs/cli-reference.md). The unrelated [GitHub App audit](../github-app-audit/README.md) is a separate package.
 
