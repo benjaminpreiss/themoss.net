@@ -3,8 +3,14 @@
 # The audit token is restricted to the caller repo; other installations/repos
 # are outside this check and must be reviewed separately.
 # Read-only: never creates PRs, changes settings, or reads branch rules.
+# @describe Read-only GitHub App installation and scoped-token permission audit.
+# @arg app! <APP_ID> Numeric GitHub App ID
+# @arg key! <FILE> Private App signing key path (never contents)
+# @arg policy! <FILE> Expected permissions JSON
+# @arg repo! <OWNER/REPO> Calling repository
 set -euo pipefail
 umask 077
+audit_main() {
 [[ $# == 4 ]] || { echo 'usage: audit-app.sh APP_ID KEY_FILE POLICY_JSON OWNER/REPO' >&2; exit 2; }
 app=$1 key=$2 policy=$3 repo=$4
 [[ $app =~ ^[0-9]+$ && $repo =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo 'invalid App ID or repo' >&2; exit 2; }
@@ -59,3 +65,7 @@ done
 unset token
 jq -en --arg repo "$repo" --argjson actual "$repos" '$actual == [$repo]' >/dev/null || { echo 'scoped token must access only the calling repository' >&2; exit 1; }
 printf 'App %s installation %s: permissions match policy; audit token scoped to %s\n' "$app" "$installation" "$repo"
+}
+
+eval "$(argc --argc-eval "$0" "$@")"
+audit_main "$@"

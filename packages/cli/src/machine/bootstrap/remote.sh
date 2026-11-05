@@ -2,9 +2,11 @@
 # Run only over SSH with StrictHostKeyChecking=yes, as root. Never install disks.
 # Called twice: prepare clears an interrupted upload; finish verifies and
 # commits it. The receipt's revision must be the initial known-good revision.
+# @describe Internal root-only bootstrap protocol. Never installs disks.
 set -euo pipefail
 umask 077
 fail() { echo "themoss bootstrap: $*" >&2; exit 1; }
+bootstrap_remote() {
 [[ $# == 7 ]] || fail 'usage: phase repository-url revision checkout machine state branch'
 phase=$1 url=$2 rev=$3 repo=$4 machine=$5 state=$6 branch=$7
 [[ $rev =~ ^[0-9a-f]{40}$ && $branch =~ ^[a-zA-Z0-9_/-]+$ && $branch != *..* ]] || fail 'invalid revision or branch'
@@ -85,3 +87,24 @@ chmod 600 "$state/revision.tmp"
 mv -- "$state/revision.tmp" "$state/revision"
 rm -rf -- "$state/incoming"
 printf 'Bootstrapped installed revision %s; timer policy unchanged\n' "$rev"
+}
+
+# @cmd Prepare a retryable incoming upload (internal, target-side)
+# @arg url! <URL> Consumer Git origin
+# @arg rev! <REV> Installed commit
+# @arg repo! <PATH> Target checkout
+# @arg machine! <PATH> Private machine directory
+# @arg state! <PATH> Root-only state
+# @arg branch! <BRANCH> Installed branch
+prepare() { bootstrap_remote prepare "$@"; }
+
+# @cmd Verify and commit a completed upload (internal, target-side)
+# @arg url! <URL> Consumer Git origin
+# @arg rev! <REV> Installed commit
+# @arg repo! <PATH> Target checkout
+# @arg machine! <PATH> Private machine directory
+# @arg state! <PATH> Root-only state
+# @arg branch! <BRANCH> Installed branch
+finish() { bootstrap_remote finish "$@"; }
+
+eval "$(argc --argc-eval "$0" "$@")"

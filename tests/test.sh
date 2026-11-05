@@ -5,7 +5,16 @@
 # No real target, GitHub credentials, or destructive operation is used.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd -P)
-tmp=$(mktemp -d "$root/.test-tmp.XXXXXXXX"); trap 'rm -rf "$tmp"' EXIT
+# Keep all synthetic private paths under the one ignored operator directory.
+# Do not leave .moss behind if this fixture created it.
+created_store=0
+if [[ ! -e $root/.moss && ! -L $root/.moss ]]; then
+  mkdir -m 700 -- "$root/.moss"
+  created_store=1
+fi
+[[ -d $root/.moss && ! -L $root/.moss && $(stat -c %a "$root/.moss") == 700 ]] || { echo 'unsafe test .moss directory' >&2; exit 1; }
+tmp=$(mktemp -d "$root/.moss/.test-tmp.XXXXXXXX")
+trap 'rm -rf -- "$tmp"; if [[ $created_store == 1 ]]; then rmdir -- "$root/.moss"; fi' EXIT
 export TMPDIR="$tmp"
 mkdir -p "$tmp/bin" "$tmp/machine" "$tmp/state" "$tmp/repo"
 export PATH="$tmp/bin:$PATH" MOCK_LOG="$tmp/log" MOCK_PROBE="$tmp/probe" MOCK_FAIL='' MOCK_DIVERGE=''
@@ -48,7 +57,7 @@ cat >"$tmp/bin/nixos-anywhere" <<'EOF'
 echo "ERASE $*" >>"$MOCK_LOG"
 EOF
 chmod +x "$tmp/bin/"*
-cli="$root/toolkit/deploy.sh"
+cli="$root/packages/cli/bin/machine/deploy.sh"
 bash "$cli" discover root@example /dev/vda "$tmp/record"
 bash "$cli" preflight "$tmp/record"
 for key in arch boot nic mac disk; do
@@ -62,6 +71,7 @@ git -C "$tmp/repo" config user.email test@example.invalid
 git -C "$tmp/repo" config user.name Test
 printf '{}\n' >"$tmp/repo/flake.lock"
 printf '{ outputs = _: { }; }\n' >"$tmp/repo/flake.nix"
+printf '.moss/\n' >"$tmp/repo/.gitignore"
 git -C "$tmp/repo" add .; git -C "$tmp/repo" commit -qm initial
 first=$(git -C "$tmp/repo" rev-parse HEAD)
 # local bare origin gives real fetch/ancestry behavior, with no network.
@@ -70,13 +80,117 @@ git -C "$tmp/repo" remote add origin "$tmp/origin.git"
 receipt="$tmp/install-receipt.json"
 printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/machine" test main "$receipt" >/dev/null 2>&1 && exit 1
 git -C "$tmp/repo" push -q origin HEAD:main
+# The public planner can guide an operator through creating private desired
+# configuration. One detected whole disk becomes a proposal, never erase consent.
+public="$root/packages/cli/bin/moss"
+git init -q --bare "$tmp/bare.git"
+(cd "$tmp/bare.git"; bash "$public" init >/dev/null)
+[[ -d $tmp/bare.git/.moss && $(stat -c %a "$tmp/bare.git/.moss") == 700 ]]
+git init -q "$tmp/unignored"
+(cd "$tmp/unignored"; bash "$public" init >"$tmp/init-note" 2>&1)
+[[ -d $tmp/unignored/.moss && $(stat -c %a "$tmp/unignored/.moss") == 700 ]]
+grep -q 'add .moss/' "$tmp/init-note"
+(cd "$tmp/unignored"; ! bash "$public" machine plan root@example </dev/null >/dev/null 2>&1)
+[[ ! -e $tmp/unignored/.moss/root@example ]]
+managed="$tmp/repo/.moss/root@example"
+# Defaults resolve from the Git ancestor, including when called in a subdirectory.
+(cd "$tmp/repo"; ! bash "$public" machine plan root@example </dev/null >/dev/null 2>&1)
+(cd "$tmp/repo"; bash "$public" init >/dev/null; bash "$public" init >/dev/null)
+(cd "$tmp/repo"; printf '%s\n' '' '' main test "$tmp/machine" '' '' '' '' '' '' '' y | \
+  MOSS_TEST_INPUT=1 bash "$public" machine plan root@example >/dev/null)
+interactive_plan=$(readlink -- "$managed/latest")
+[[ $(stat -c %a "$managed/machine.json") == 600 && $(stat -c %a "$managed") == 700 && $(jq -r .type "$interactive_plan") == install ]]
+[[ -L $managed/latest && $interactive_plan == "$managed/plans/"* && $(stat -c %a "$interactive_plan") == 600 ]]
+jq -e --arg repo "$tmp/repo" --arg rev "$first" --arg machine "$tmp/machine" \
+  '.repo == $repo and .revision == $rev and .branch == "main" and .output == "test" and .machine == $machine and .disk == "/dev/vda"' "$managed/machine.json" >/dev/null
+cp "$managed/machine.json" "$tmp/unignored/operator.json"
+(cd "$tmp/unignored"; ! bash "$public" machine plan root@example --config "$managed/machine.json" --output "$tmp/rejected-plan.json" >/dev/null 2>&1)
+(cd "$tmp/repo"; ! bash "$public" machine plan root@example --config "$tmp/unignored/operator.json" --output "$tmp/rejected-plan.json" >/dev/null 2>&1)
+(cd "$tmp/repo"; ! bash "$public" machine plan root@example --output "$tmp/unignored/plan.json" >/dev/null 2>&1)
+jq --arg receipt "$tmp/unignored/install-receipt.json" '.receipt = $receipt' "$managed/machine.json" >"$tmp/altered-config.json"
+chmod 600 "$tmp/altered-config.json"
+(cd "$tmp/repo"; ! bash "$public" machine plan root@example --config "$tmp/altered-config.json" --output "$tmp/rejected-plan.json" >/dev/null 2>&1)
+[[ ! -e $tmp/rejected-plan.json && ! -e $tmp/unignored/plan.json ]]
+! grep -q ERASE "$tmp/log"
+(cd "$tmp/repo"; ! bash "$public" machine plan root@example --disk /dev/vdb --output "$tmp/mismatch-plan.json" >/dev/null 2>&1)
+[[ ! -e $tmp/mismatch-plan.json ]]
+mkdir "$tmp/repo/subdir"
+(cd "$tmp/repo/subdir"; bash "$public" machine plan root@example >/dev/null)
+[[ $(readlink -- "$managed/latest") != "$interactive_plan" && $(jq -r .config "$(readlink -- "$managed/latest")") == "$managed/machine.json" ]]
+(cd "$tmp/repo"; bash "$public" machine plan root@example --output "$tmp/custom-plan.json" >/dev/null)
+[[ $(readlink -- "$managed/latest") == "$tmp/custom-plan.json" ]]
+(cd "$tmp/repo"; ! bash "$public" machine plan root@example --output "$tmp/custom-plan.json" >/dev/null 2>&1)
+[[ $(readlink -- "$managed/latest") == "$tmp/custom-plan.json" ]]
+mv "$managed/latest" "$managed/latest.saved"
+ln -s /dev/null "$managed/latest"
+(cd "$tmp/repo"; ! bash "$public" machine apply --target root@example </dev/null >/dev/null 2>&1)
+rm "$managed/latest"; mv "$managed/latest.saved" "$managed/latest"
+chmod 644 "$tmp/custom-plan.json"
+(cd "$tmp/repo"; ! bash "$public" machine apply --target root@example </dev/null >/dev/null 2>&1)
+chmod 600 "$tmp/custom-plan.json"
+# A second target has a distinct config and must not silently replace the first.
+mkdir "$tmp/cancelled"
+(cd "$tmp/repo"; ! printf '%s\n' '' | MOSS_TEST_INPUT=1 bash "$public" machine plan root@cancelled --output "$tmp/cancelled/plan.json" >/dev/null 2>&1)
+[[ ! -e $tmp/repo/.moss/root@cancelled/machine.json && ! -e $tmp/cancelled/plan.json ]]
+# Multiple whole disks require a numbered human choice; never guess.
+printf '%s\n' x86_64 bios '[{"dev":"eth0"}]' \
+  '{"blockdevices":[{"path":"/dev/vda","type":"disk","size":1000,"model":"A","serial":"123"},{"path":"/dev/vdb","type":"disk","size":2000,"model":"B","serial":"456"}]}' >"$tmp/probe"
+printf '%s\n' '' '' main test "$tmp/machine" '' '' '' '' '' '' '' 2 y | \
+  (cd "$tmp/repo"; MOSS_TEST_INPUT=1 bash "$public" machine plan root@other >/dev/null)
+other="$tmp/repo/.moss/root@other"
+[[ $(jq -r .disk "$other/machine.json") == /dev/vdb && $(jq -r .disk "$(readlink -- "$other/latest")") == /dev/vdb ]]
+mv "$managed/latest" "$managed/latest.saved"
+ln -s "$(readlink -- "$other/latest")" "$managed/latest"
+(cd "$tmp/repo"; ! bash "$public" machine apply --target root@example </dev/null >/dev/null 2>&1)
+rm "$managed/latest"; mv "$managed/latest.saved" "$managed/latest"
+(cd "$tmp/repo"; ! bash "$public" machine apply </dev/null >/dev/null 2>&1) # ambiguous targets
+(cd "$tmp/repo"; ! printf 'NO\n' | bash "$public" machine apply --target root@example >/dev/null 2>&1)
+(cd "$tmp/repo"; ! printf 'NO\n' | bash "$public" machine apply --plan "$interactive_plan" --target root@example >/dev/null 2>&1)
+(cd "$tmp/repo"; ! bash "$public" machine apply "$interactive_plan" --plan "$tmp/custom-plan.json" >/dev/null 2>&1)
+[[ $(readlink -- "$managed/latest") != "$interactive_plan" ]] # manual override never changes latest
+! grep -q ERASE "$tmp/log"
+mkdir "$tmp/no-choice"
+(cd "$tmp/repo"; ! printf '%s\n' '' '' main test "$tmp/machine" '' '' '' '' '' '' '' 0 | \
+  MOSS_TEST_INPUT=1 bash "$public" machine plan root@nochoice --output "$tmp/no-choice/plan.json" >/dev/null 2>&1)
+[[ ! -e $tmp/repo/.moss/root@nochoice/machine.json && ! -e $tmp/no-choice/plan.json ]]
+(cd "$tmp/repo"; ! bash "$public" machine apply --target root@nochoice </dev/null >/dev/null 2>&1)
+printf '%s\n' x86_64 bios '[{"dev":"eth0"}]' \
+  '{"blockdevices":[{"path":"/dev/vda","type":"disk","size":1000,"model":"A","serial":"123"}]}' >"$tmp/probe"
+! grep -q ERASE "$tmp/log"
+# Two synthetic consumers exercise the shared private install-input check;
+# there is no public manifest authoring or compatibility command.
+for consumer in relay agentic; do
+  inputs="$tmp/$consumer.json"
+  jq -n --arg target root@example --arg disk /dev/vda --arg record "$tmp/record" \
+    --arg repo "$tmp/repo" --arg revision "$first" --arg machine "$tmp/machine" \
+    --arg receipt "$tmp/$consumer-receipt" --arg base "$tmp/$consumer-remote" \
+    '{version:1,target:$target,disk:$disk,record:$record,repo:$repo,revision:$revision,
+      branch:"main",output:"test",machine:$machine,receipt:$receipt,
+      remoteCheckout:($base+"/repo"),remoteMachine:($base+"/machine"),remoteState:($base+"/state")}' >"$inputs"
+  chmod 600 "$inputs"
+  bash "$cli" inputs check "$inputs" | grep -q 'pushed revision='
+  jq '.disk = "/dev/sda"' "$inputs" >"$tmp/bad.json"; chmod 600 "$tmp/bad.json"
+  ! bash "$cli" inputs apply "$tmp/bad.json" </dev/null >/dev/null 2>&1
+  jq '.target = "root@other"' "$inputs" >"$tmp/bad.json"
+  ! bash "$cli" inputs apply "$tmp/bad.json" </dev/null >/dev/null 2>&1
+  jq '.remoteState = "/tmp/../oops"' "$inputs" >"$tmp/bad.json"
+  ! bash "$cli" inputs apply "$tmp/bad.json" </dev/null >/dev/null 2>&1
+  printf 'no\n' | bash "$cli" inputs apply "$inputs" >/dev/null 2>&1 && exit 1
+  printf 'ERASE /dev/vda\n' | bash "$cli" inputs apply "$inputs"
+  export MOCK_UPLOAD_FAIL=1
+  ! bash "$cli" bootstrap "$tmp/$consumer-receipt" "$tmp/repo" "$tmp/machine" "$tmp/$consumer-remote/repo" "$tmp/$consumer-remote/machine" "$tmp/$consumer-remote/state" >/dev/null 2>&1
+  [[ ! -e $tmp/$consumer-remote/state/revision ]]
+  export MOCK_UPLOAD_FAIL=0
+  bash "$cli" bootstrap "$tmp/$consumer-receipt" "$tmp/repo" "$tmp/machine" "$tmp/$consumer-remote/repo" "$tmp/$consumer-remote/machine" "$tmp/$consumer-remote/state"
+  bash "$cli" bootstrap "$tmp/$consumer-receipt" "$tmp/repo" "$tmp/machine" "$tmp/$consumer-remote/repo" "$tmp/$consumer-remote/machine" "$tmp/$consumer-remote/state"
+done
 printf 'no\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/machine" test main "$receipt" > /dev/null 2>&1 && { echo 'confirmation bypass' >&2; exit 1; }
 [[ ! -e $receipt ]]
 ! grep -q ERASE "$tmp/log"
 printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/machine" test main "$receipt"
 [[ $(jq -r .revision "$receipt") == "$first" && $(stat -c %a "$receipt") == 600 ]]
 if printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/machine" test main "$receipt" >/dev/null 2>&1; then echo 'replaced receipt' >&2; exit 1; fi
-[[ $(grep -c ERASE "$tmp/log") == 1 ]]
+[[ $(grep -c ERASE "$tmp/log") == 3 ]]
 # Consumer-owned report generator, pre-erase evaluated check and separate
 # recovery tree. No recovery material may enter the staged Nix flake.
 mkdir "$tmp/generated" "$tmp/recovery"
@@ -99,10 +213,10 @@ printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$firs
 [[ $(jq -r .facterSha256 "$tmp/report-receipt") == "$(sha256sum "$tmp/generated/facter.json" | cut -d ' ' -f1)" ]]
 grep -q -- '--extra-files' "$tmp/log"
 if printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/generated" test main "$tmp/report-receipt2" "$tmp/generator" >/dev/null 2>&1; then echo 'overwrote report' >&2; exit 1; fi
-[[ $(grep -c ERASE "$tmp/log") == 2 ]]
+[[ $(grep -c ERASE "$tmp/log") == 4 ]]
 printf '#!/usr/bin/env bash\nexit 1\n' >"$tmp/reject-check"; chmod +x "$tmp/reject-check"
 printf 'ERASE /dev/vda\n' | bash "$cli" install "$tmp/record" "$tmp/repo" "$first" "$tmp/generated" test main "$tmp/rejected-receipt" - - "$tmp/reject-check" >/dev/null 2>&1 && { echo 'pre-erase validation bypassed' >&2; exit 1; }
-[[ $(grep -c ERASE "$tmp/log") == 2 && ! -e $tmp/rejected-receipt ]]
+[[ $(grep -c ERASE "$tmp/log") == 4 && ! -e $tmp/rejected-receipt ]]
 cat >"$tmp/bin/systemctl" <<'EOF'
 #!/usr/bin/env bash
 echo "unexpected timer call $*" >>"$MOCK_LOG"
@@ -165,7 +279,7 @@ transition
 [[ $(<"$tmp/remote/machine/machine.nix") == production ]]
 [[ $(<"$tmp/remote/state/selector") == branch:main ]]
 ! grep -q 'unexpected timer call' "$tmp/log"
-[[ $(grep -c ERASE "$tmp/log") == 2 ]]
+[[ $(grep -c ERASE "$tmp/log") == 4 ]]
 git -C "$tmp/repo" reset -q --hard "$next"
 git -C "$tmp/repo" push -q --force origin HEAD:main
 : >"$tmp/log"
@@ -222,45 +336,112 @@ printf 'other branch\n' >"$tmp/repo/version"; git -C "$tmp/repo" add version; gi
 git -C "$tmp/repo" push -q --force origin HEAD:main
 bash "$cli" poll "$tmp/repo" "$tmp/machine" test "$tmp/state" >/dev/null 2>&1 && { echo 'divergence passed' >&2; exit 1; }
 [[ $(<"$tmp/state/revision") == "$second" ]]
-# Legacy adoption: verified closure and private hashes, no install receipt.
+# Existing-host adoption: verified closure and private hashes, no install receipt.
 # An incomplete upload must not authorize polling (no revision file).
 jq -n --arg target root@example --arg rev "$first" --arg branch main --arg url "$tmp/origin.git" --arg sha "$(sha256sum "$tmp/machine/machine.nix" | cut -d ' ' -f1)" \
   '{target:$target,revision:$rev,branch:$branch,origin:$url,machineSha256:$sha,facterSha256:"",verifiedBy:"operator via console",runningSystem:"/nix/store/synthetic-baseline"}' >"$tmp/evidence"
 chmod 600 "$tmp/evidence"
-adopt() { bash "$cli" adopt "$tmp/evidence" "$tmp/repo" "$tmp/machine" test "$tmp/legacy/repo" "$tmp/legacy/machine" "$tmp/legacy/state"; }
+adopt() { bash "$cli" adopt "$tmp/evidence" "$tmp/repo" "$tmp/machine" test "$tmp/existing/repo" "$tmp/existing/machine" "$tmp/existing/state"; }
 MOCK_RUNNING_SYSTEM=/nix/store/changed adopt >/dev/null 2>&1 && { echo 'adopted wrong running system' >&2; exit 1; }
-[[ ! -e $tmp/legacy/state/revision ]]
+[[ ! -e $tmp/existing/state/revision ]]
 MOCK_UPLOAD_FAIL=1 adopt >/dev/null 2>&1 && { echo 'adopted incomplete upload' >&2; exit 1; }
-[[ ! -e $tmp/legacy/state/revision ]]
-bash "$cli" poll "$tmp/repo" "$tmp/machine" test "$tmp/legacy/state" >/dev/null 2>&1 && { echo 'poll accepted incomplete adoption' >&2; exit 1; }
+[[ ! -e $tmp/existing/state/revision ]]
+bash "$cli" poll "$tmp/repo" "$tmp/machine" test "$tmp/existing/state" >/dev/null 2>&1 && { echo 'poll accepted incomplete adoption' >&2; exit 1; }
 # The original commit is still reachable in the test origin's branch only if
-# restored; do not claim a rewritten branch is a verified legacy baseline.
+# restored; do not claim a rewritten branch is a verified existing baseline.
 git -C "$tmp/repo" push -q --force origin "$first":main
 adopt
-[[ $(<"$tmp/legacy/state/revision") == "$first" ]]
-[[ $(<"$tmp/legacy/state/selector") == "commit:$first" ]]
+[[ $(<"$tmp/existing/state/revision") == "$first" ]]
+[[ $(<"$tmp/existing/state/selector") == "commit:$first" ]]
 : >"$tmp/log"
-bash "$cli" poll "$tmp/legacy/repo" "$tmp/legacy/machine" test "$tmp/legacy/state"
+bash "$cli" poll "$tmp/existing/repo" "$tmp/existing/machine" test "$tmp/existing/state"
 [[ ! -s $tmp/log ]]
 adopt # retry
-printf 'unrelated\n' >"$tmp/legacy/machine/facter.json"
+printf 'unrelated\n' >"$tmp/existing/machine/facter.json"
 adopt >/dev/null 2>&1 && { echo 'adopt kept unexpected report' >&2; exit 1; }
-rm "$tmp/legacy/machine/facter.json"
-printf 'wrong\n' >"$tmp/legacy/machine/machine.nix"
+rm "$tmp/existing/machine/facter.json"
+printf 'wrong\n' >"$tmp/existing/machine/machine.nix"
 adopt >/dev/null 2>&1 && { echo 'adopt overwrote original facts' >&2; exit 1; }
-printf 'candidate\n' >"$tmp/legacy/machine/machine.nix"
+printf 'candidate\n' >"$tmp/existing/machine/machine.nix"
 printf 'wrong\n' >"$tmp/machine/machine.nix"
 adopt >/dev/null 2>&1 && { echo 'adopt accepted changed evidence' >&2; exit 1; }
 printf 'candidate\n' >"$tmp/machine/machine.nix"
-printf '%040d\n' 0 >"$tmp/legacy/state/revision"
+printf '%040d\n' 0 >"$tmp/existing/state/revision"
 adopt >/dev/null 2>&1 && { echo 'adopt replaced conflicting revision' >&2; exit 1; }
 ! grep -q ERASE "$tmp/log"
 # Both consumer policies parse, and the candidate relay's timer starts disabled.
 if command -v nix-instantiate >/dev/null; then
-  for file in "$root"/examples/*.nix "$root"/toolkit/update.nix; do nix-instantiate --parse "$file" >/dev/null; done
+  for file in "$root"/examples/*.nix "$root"/packages/cli/src/machine/update.nix; do nix-instantiate --parse "$file" >/dev/null; done
 fi
 ! grep -q 'timer = false' "$root/examples/agentic.nix"
 ! grep -q 'timer = false' "$root/examples/thepeer.nix"
-! grep -q 'update --repo' "$root/toolkit/update.nix" || { echo 'module/CLI argument mismatch' >&2; exit 1; }
+! grep -q 'update --repo' "$root/packages/cli/src/machine/update.nix" || { echo 'module/CLI argument mismatch' >&2; exit 1; }
+# Public CLI: the private configuration declares source/policy once; plan
+# captures live facts and evaluates before publishing. Applying repeats all
+# time-sensitive checks and never treats the plan as erase authorization.
+public_cli="$root/packages/cli/bin/moss"
+config="$tmp/public-config.json"
+plan="$tmp/public-plan.json"
+public_receipt="$tmp/public-receipt.json"
+jq -n --arg repo "$tmp/repo" --arg rev "$first" --arg machine "$tmp/machine" \
+  --arg receipt "$public_receipt" --arg remote "$tmp/public-remote" \
+  '{version:1,repo:$repo,revision:$rev,branch:"main",output:"test",machine:$machine,
+   receipt:$receipt,remoteCheckout:($remote+"/repo"),remoteMachine:($remote+"/machine"),remoteState:($remote+"/state")}' >"$config"
+chmod 600 "$config"
+: >"$tmp/log"
+bash "$public_cli" machine plan root@example --config "$config" --disk /dev/vda --output "$plan"
+[[ $(stat -c %a "$plan") == 600 ]]
+jq -e '.type == "install" and .observed.disk.path == "/dev/vda" and .machineSha256 != ""' "$plan" >/dev/null
+! grep -q ERASE "$tmp/log"
+! bash "$public_cli" machine plan root@example --config "$config" --disk /dev/sda --output "$tmp/invalid-plan" >/dev/null 2>&1
+! bash "$public_cli" machine plan root@example --config "$config" --disk /dev/vda --output "$plan" >/dev/null 2>&1
+printf 'wrong\n' | bash "$public_cli" machine apply "$plan" >/dev/null 2>&1 && { echo 'public apply bypassed confirmation' >&2; exit 1; }
+[[ ! -e $public_receipt ]] && ! grep -q ERASE "$tmp/log"
+cp "$config" "$tmp/config-copy"; printf ' \n' >>"$config"
+! bash "$public_cli" machine apply "$plan" </dev/null >/dev/null 2>&1
+mv "$tmp/config-copy" "$config"; chmod 600 "$config"
+[[ ! -e $public_receipt ]]
+printf 'ERASE /dev/vda\n' | bash "$public_cli" machine apply "$plan" >/dev/null
+[[ -f $public_receipt && $(stat -c %a "$public_receipt") == 600 ]]
+! bash "$public_cli" machine apply "$plan" </dev/null >/dev/null 2>&1
+# The post-install handoff has its own host-key trust boundary and is retryable.
+MOCK_HOST_VERIFIED=0 bash "$public_cli" machine bootstrap "$public_receipt" --config "$config" >/dev/null 2>&1 && exit 1
+MOCK_HOST_VERIFIED=1 bash "$public_cli" machine bootstrap "$public_receipt" --config "$config"
+bash "$public_cli" machine bootstrap "$public_receipt" --config "$config"
+# Bootstrap can find the ignored operator-local configuration from the receipt target.
+cp "$public_receipt" "$managed/install-receipt.json"
+jq --arg remote "$tmp/public-remote" \
+  '.remoteCheckout = ($remote+"/repo") | .remoteMachine = ($remote+"/machine") | .remoteState = ($remote+"/state")' \
+  "$managed/machine.json" >"$tmp/managed-config"
+mv "$tmp/managed-config" "$managed/machine.json"; chmod 600 "$managed/machine.json"
+(cd "$tmp/repo"; bash "$public_cli" machine bootstrap "$managed/install-receipt.json")
+# A separately reviewed transition changes the initial commit pin to branch
+# tracking. Planning must never silently make that policy choice itself.
+bash "$cli" transition "$public_receipt" root@example "$tmp/public-remote/repo" main "$tmp/machine" "$tmp/public-remote/machine" test "$tmp/public-remote/state" >/dev/null
+# Same plan/apply interface: an installed branch-tracking host yields an
+# update plan; its executor must never call the disk installer.
+printf 'next\n' >"$tmp/repo/next"; git -C "$tmp/repo" add next; git -C "$tmp/repo" commit -qm next
+update_rev=$(git -C "$tmp/repo" rev-parse HEAD)
+git -C "$tmp/repo" push -q origin HEAD:main
+jq --arg rev "$update_rev" '.revision = $rev' "$config" >"$tmp/new-config"
+mv "$tmp/new-config" "$config"; chmod 600 "$config"
+update_plan="$tmp/update-plan.json"
+bash "$public_cli" machine plan root@example --config "$config" --output "$update_plan"
+(cd "$tmp/repo"; bash "$public_cli" machine plan root@example --config "$config" >/dev/null)
+[[ $(jq -r .type "$(readlink -- "$managed/latest")") == update ]]
+jq -e --arg next "$update_rev" '.type == "update" and .expected.next == $next' "$update_plan" >/dev/null
+# Tip movement after planning must not silently deploy the newer commit.
+git -C "$tmp/repo" commit --allow-empty -qm 'moved after review'
+git -C "$tmp/repo" push -q origin HEAD:main
+: >"$tmp/log"
+! bash "$public_cli" machine apply "$update_plan" >/dev/null 2>&1
+(cd "$tmp/repo"; ! bash "$public_cli" machine apply --target root@example >/dev/null 2>&1)
+[[ $(<"$tmp/public-remote/state/revision") == "$first" ]]
+! grep -q 'switch\|ERASE' "$tmp/log"
+git -C "$tmp/repo" push -q --force origin "$update_rev":main
+(cd "$tmp/repo"; bash "$public_cli" machine apply --target root@example)
+[[ $(<"$tmp/public-remote/state/revision") == "$update_rev" ]]
+! grep -q ERASE "$tmp/log"
+! bash "$public_cli" machine apply "$update_plan" >/dev/null 2>&1
 bash "$root/tests/audit.sh"
 echo 'Bash fixture checks passed'

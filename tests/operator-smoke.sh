@@ -14,6 +14,7 @@ shift 3 # options and target
 if [[ $* == *'cat /sys/class/net/'* ]]; then
   echo aa:bb:cc:dd:ee:ff
 elif [[ $* == bash\ -s\ --* || $* == tar\ -xf* ]]; then
+  cat >/dev/null # Drain the uploaded script/tar stream like a real SSH peer.
   echo "remote $*" >>"$MOCK_LOG"
 else
   printf '%s\n' x86_64 bios '[{"dev":"eth0"}]' '{"blockdevices":[{"path":"/dev/vda","type":"disk","size":1000,"model":"A","serial":"123"}]}'
@@ -38,7 +39,7 @@ rev=$(git -C "$tmp/repo" rev-parse HEAD)
 git init -q --bare "$tmp/origin.git"
 git -C "$tmp/repo" remote add origin "$tmp/origin.git"
 git -C "$tmp/repo" push -q origin HEAD:main
-cli="$root/toolkit/deploy.sh"
+cli="$root/packages/cli/bin/machine/deploy.sh"
 bash "$cli" discover root@example /dev/vda "$tmp/record"
 bash "$cli" preflight "$tmp/record"
 # Build and validate before any disk call; denial must leave no receipt.

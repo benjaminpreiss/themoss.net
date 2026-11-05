@@ -1,0 +1,275 @@
+{
+  "name": "remote",
+  "describe": "Internal root-only bootstrap protocol. Never installs disks.",
+  "version": null,
+  "aliases": [],
+  "flag_options": [
+    {
+      "id": "help",
+      "long_name": "--help",
+      "short_name": "-h",
+      "describe": "",
+      "flag": true,
+      "notations": [],
+      "required": false,
+      "multiple_values": false,
+      "multiple_occurs": false,
+      "num_args": [
+        0,
+        0
+      ],
+      "delimiter": null,
+      "terminated": false,
+      "prefixed": false,
+      "assigned": false,
+      "default": null,
+      "choice": null,
+      "env": null,
+      "inherited": false
+    },
+    {
+      "id": "version",
+      "long_name": "--version",
+      "short_name": "-V",
+      "describe": "",
+      "flag": true,
+      "notations": [],
+      "required": false,
+      "multiple_values": false,
+      "multiple_occurs": false,
+      "num_args": [
+        0,
+        0
+      ],
+      "delimiter": null,
+      "terminated": false,
+      "prefixed": false,
+      "assigned": false,
+      "default": null,
+      "choice": null,
+      "env": null,
+      "inherited": false
+    }
+  ],
+  "positionals": [],
+  "envs": [],
+  "subcommands": [
+    {
+      "name": "prepare",
+      "describe": "Prepare a retryable incoming upload (internal, target-side)",
+      "version": null,
+      "aliases": [],
+      "flag_options": [
+        {
+          "id": "help",
+          "long_name": "--help",
+          "short_name": "-h",
+          "describe": "",
+          "flag": true,
+          "notations": [],
+          "required": false,
+          "multiple_values": false,
+          "multiple_occurs": false,
+          "num_args": [
+            0,
+            0
+          ],
+          "delimiter": null,
+          "terminated": false,
+          "prefixed": false,
+          "assigned": false,
+          "default": null,
+          "choice": null,
+          "env": null,
+          "inherited": false
+        }
+      ],
+      "positionals": [
+        {
+          "id": "url",
+          "describe": "Consumer Git origin",
+          "notation": "URL",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "rev",
+          "describe": "Installed commit",
+          "notation": "REV",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "repo",
+          "describe": "Target checkout",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "machine",
+          "describe": "Private machine directory",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "state",
+          "describe": "Root-only state",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "branch",
+          "describe": "Installed branch",
+          "notation": "BRANCH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        }
+      ],
+      "envs": [],
+      "subcommands": [],
+      "command_fn": "prepare"
+    },
+    {
+      "name": "finish",
+      "describe": "Verify and commit a completed upload (internal, target-side)",
+      "version": null,
+      "aliases": [],
+      "flag_options": [
+        {
+          "id": "help",
+          "long_name": "--help",
+          "short_name": "-h",
+          "describe": "",
+          "flag": true,
+          "notations": [],
+          "required": false,
+          "multiple_values": false,
+          "multiple_occurs": false,
+          "num_args": [
+            0,
+            0
+          ],
+          "delimiter": null,
+          "terminated": false,
+          "prefixed": false,
+          "assigned": false,
+          "default": null,
+          "choice": null,
+          "env": null,
+          "inherited": false
+        }
+      ],
+      "positionals": [
+        {
+          "id": "url",
+          "describe": "Consumer Git origin",
+          "notation": "URL",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "rev",
+          "describe": "Installed commit",
+          "notation": "REV",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "repo",
+          "describe": "Target checkout",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "machine",
+          "describe": "Private machine directory",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "state",
+          "describe": "Root-only state",
+          "notation": "PATH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        },
+        {
+          "id": "branch",
+          "describe": "Installed branch",
+          "notation": "BRANCH",
+          "required": true,
+          "multiple": false,
+          "delimiter": null,
+          "terminated": false,
+          "default": null,
+          "choice": null,
+          "env": null
+        }
+      ],
+      "envs": [],
+      "subcommands": [],
+      "command_fn": "finish"
+    }
+  ],
+  "command_fn": null
+}
