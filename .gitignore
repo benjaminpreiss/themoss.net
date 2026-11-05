@@ -1,2 +1,6 @@
 # Operator-local configuration, plans and install receipts
 .moss/
+# Inactive Rust CLI preview build output and worktree-local Cargo cache
+/packages/cli/rust/target/
+/packages/cli/rust/.cargo-home/
+/packages/cli/rust/.tmp/

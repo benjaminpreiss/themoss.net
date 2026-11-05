@@ -1,58 +1,125 @@
-# moss machine command reference
+# moss CLI reference
 
-> Generated from the argc JSON spec. For destructive-operation safeguards and recovery, follow the [machine guide](../packages/cli/src/machine/README.md#install-a-machine), not this command list.
+> Generated from clap help. For destructive-operation safeguards and recovery, follow the [machine guide](../packages/cli/src/machine/README.md#install-a-machine), not this command list.
 
 ## `moss`
 
+```text
 Initialize local storage and plan reviewed changes to a themoss machine
 
-**Options**
+Usage: moss <COMMAND>
 
-- **`--version`** (optional)
+Commands:
+  init     Create operator-local .moss in the current directory or Git ancestor
+  machine  Operate on a machine
+  help     Print this message or the help of the given subcommand(s)
 
-### `moss machine`
+Options:
+  -h, --help
+          Print help
 
+  -V, --version
+          Print version
+
+```
+
+## `moss init`
+
+```text
+Create operator-local .moss in the current directory or Git ancestor
+
+Usage: moss init
+
+Options:
+  -h, --help
+          Print help
+
+```
+
+## `moss machine`
+
+```text
 Operate on a machine
 
-#### `moss machine plan`
+Usage: moss machine <COMMAND>
 
+Commands:
+  plan       Inspect the target and build a non-destructive reviewed installation plan
+  apply      Revalidate and apply a reviewed plan; installation erases the selected disk
+  bootstrap  Resume first-boot handoff after independently verifying the new SSH host key
+  help       Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help
+          Print help
+
+```
+
+## `moss machine plan`
+
+```text
 Inspect the target and build a non-destructive reviewed installation plan
 
-**Arguments**
+Usage: moss machine plan [OPTIONS] <TARGET>
 
-- **`TARGET`** (required) — Known rescue SSH target (verify host key independently)
+Arguments:
+  <TARGET>
+          Known rescue SSH target (verify host key independently)
 
-**Options**
+Options:
+      --config <FILE>
+          Override the default per-target configuration file
 
-- **`--config <FILE>`** (optional) — Override the default per-target configuration file
-- **`--disk <DISK>`** (optional) — Choose a whole disk explicitly; otherwise detect during guided install
-- **`--output <FILE>`** (optional) — New plan file; defaults to this target's .moss/plans directory
+      --disk <DISK>
+          Choose a whole disk explicitly; otherwise detect during guided install
 
-#### `moss machine apply`
+      --output <FILE>
+          New plan file; defaults to this target's .moss/plans directory
 
+  -h, --help
+          Print help
+
+```
+
+## `moss machine apply`
+
+```text
 Revalidate and apply a reviewed plan; installation erases the selected disk
 
-**Arguments**
+Usage: moss machine apply [OPTIONS] [FILE]
 
-- **`FILE`** (optional) — Explicit plan path (also accepted for existing scripts)
+Arguments:
+  [FILE]
+          Explicit plan path (also accepted for existing scripts)
 
-**Options**
+Options:
+      --plan <FILE>
+          Explicit plan path instead of the latest managed plan
 
-- **`--plan <FILE>`** (optional) — Explicit plan path instead of the latest managed plan
-- **`--target <ROOT@HOST>`** (optional) — Choose a target when the checkout has multiple plans
+      --target <ROOT@HOST>
+          Choose a target when the checkout has multiple plans
 
-#### `moss machine bootstrap`
+  -h, --help
+          Print help
 
+```
+
+## `moss machine bootstrap`
+
+```text
 Resume first-boot handoff after independently verifying the new SSH host key
 
-**Arguments**
+Usage: moss machine bootstrap [OPTIONS] <RECEIPT>
 
-- **`RECEIPT`** (required) — Off-host installation receipt
+Arguments:
+  <RECEIPT>
+          Off-host installation receipt
 
-**Options**
+Options:
+      --config <FILE>
+          Original private machine configuration; defaults to .moss for the receipt target
 
-- **`--config <FILE>`** (optional) — Original private machine configuration; defaults to .moss for the receipt target
+  -h, --help
+          Print help
 
-### `moss init`
-
-Create operator-local .moss in the current directory or Git ancestor
+```

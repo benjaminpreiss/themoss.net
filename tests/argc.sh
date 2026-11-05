@@ -34,7 +34,8 @@ jq -e '[.subcommands[] | select(.name == "machine") | .subcommands[] | select(.n
 bash -n packages/cli/bin/moss "$tmp/moss.sh"
 ! grep -q '^# @include ' packages/cli/bin/moss packages/cli/bin/machine/deploy.sh
 bash packages/cli/helpers/render-cli-reference.sh "$tmp/specs" >"$tmp/reference.md"
-cmp docs/cli-reference.md "$tmp/reference.md" || { echo 'regenerate docs/cli-reference.md' >&2; exit 1; }
+# The public Markdown reference is now generated from the Rust clap tree;
+# this rendering still checks the legacy argc specification independently.
 grep -Fq -- '- **`TARGET`** (required)' "$tmp/reference.md"
 grep -Fq -- '- **`--config <FILE>`** (optional)' "$tmp/reference.md"
 grep -Fq -- '- **`--output <FILE>`** (optional)' "$tmp/reference.md"

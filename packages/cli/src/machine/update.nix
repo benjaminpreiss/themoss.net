@@ -1,6 +1,9 @@
 # Optional target-side updater. Import from a consumer flake pinned by flake.lock.
 { lib, pkgs, config, ... }:
-let cfg = config.services.themossUpdate;
+let
+  cfg = config.services.themossUpdate;
+  moss = pkgs.callPackage ../../rust/package.nix { };
+
 in {
   options.services.themossUpdate = {
     enable = lib.mkEnableOption "reviewed Git NixOS updates (never Disko)";
@@ -11,13 +14,14 @@ in {
     interval = lib.mkOption { type = lib.types.str; default = "daily"; };
   };
   config = lib.mkIf cfg.enable {
+    environment.systemPackages = [ moss ];
     systemd.services.themoss-update = {
       description = "Build then switch reviewed NixOS revision";
       path = with pkgs; [ git nix openssh nixos-rebuild jq gnutar util-linux coreutils findutils ];
       serviceConfig = {
         Type = "oneshot";
         User = "root";
-        ExecStart = "${pkgs.bash}/bin/bash ${../../bin/machine/deploy.sh} poll ${lib.escapeShellArg cfg.repository} ${lib.escapeShellArg cfg.machine} ${lib.escapeShellArg cfg.host} ${lib.escapeShellArg cfg.state}";
+        ExecStart = "${moss}/bin/moss internal poll ${lib.escapeShellArg cfg.repository} ${lib.escapeShellArg cfg.machine} ${lib.escapeShellArg cfg.host} ${lib.escapeShellArg cfg.state}";
       };
     };
     systemd.timers.themoss-update = {
