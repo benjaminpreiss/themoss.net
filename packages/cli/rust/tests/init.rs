@@ -22,7 +22,7 @@ fn root() -> std::path::PathBuf {
 }
 
 fn moss(dir: &std::path::Path) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_moss-rust-preview"))
+    Command::new(env!("CARGO_BIN_EXE_moss"))
         .arg("init")
         .current_dir(dir)
         .output()

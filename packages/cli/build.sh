@@ -18,5 +18,7 @@ bash packages/cli/helpers/export-spec.sh packages/github-app-audit/src/audit-app
 argc --argc-build "$tmp/moss.sh" packages/cli/bin/moss
 bash packages/cli/helpers/export-spec.sh "$tmp/moss.sh" >docs/spec/cli/moss.json
 chmod +x packages/cli/bin/moss packages/cli/bin/machine/deploy.sh packages/cli/bin/machine/bootstrap/remote.sh packages/github-app-audit/bin/audit-app.sh
-bash packages/cli/helpers/render-cli-reference.sh > docs/cli-reference.md
+# Public CLI reference is generated from the replacement clap command tree.
+cli=$(nix build --no-link --print-out-paths .#moss)/bin/moss
+"$cli" reference > docs/cli-reference.md
 printf 'Generated CLI scripts, JSON specs and reference; run bash tests/argc.sh and bash tests/test.sh\n'
