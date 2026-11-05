@@ -1,14 +1,14 @@
 # `moss machine` command contract
 
-> Implemented in [PR #15](https://github.com/benjaminpreiss/themoss.net/pull/15), not yet merged or deployed. See [ADR 0001](adr/0001-public-machine-cli.md) and the [deployment runbook on the PR branch](https://github.com/benjaminpreiss/themoss.net/blob/feat/issue-14-manifest/docs/deployment.md). The earlier [CLI guideline findings](cli-guidelines-findings.md) describe the alternatives considered; this command contract supersedes their preliminary install naming recommendation.
+> Implemented in [PR #15](https://github.com/benjaminpreiss/themoss.net/pull/15), not yet merged or deployed. See [ADR 0001](adr/0001-public-machine-cli.md) and the [machine guide on the PR branch](https://github.com/benjaminpreiss/themoss.net/blob/feat/issue-14-manifest/packages/cli/src/machine/README.md). The earlier [CLI guideline findings](cli-guidelines-findings.md) describe the alternatives considered; this command contract supersedes their preliminary install naming recommendation.
 
 ## Public operator commands
 
 ```bash
-# Rescue target: explicitly select a whole disk, inspect hardware, build the
-# exact reviewed source and save a type: install plan without erasing anything.
-moss machine plan root@HOST --config /private/machine.json \
-  --disk /dev/vda --output /private/install-plan.json
+# First use: ask for private source/policy choices. Probe whole disks read-only;
+# propose the only disk or ask which one to use. Save machine.json off-host and
+# a type: install plan without erasing. --disk /dev/vda can select explicitly.
+moss machine plan root@HOST --output /private/install-plan.json
 
 # Revalidate, rebuild, run consumer checks and require typed disk identity
 # immediately before the installer. Writes an off-host install receipt.
@@ -28,7 +28,7 @@ moss machine plan root@HOST --config /private/machine.json \
 moss machine apply /private/update-plan.json
 ```
 
-`moss` is the public entry point (generated executable `packages/cli/bin/moss`). The operator's mode-600 JSON declares pinned source and policy paths, not a second Nix machine definition; it does not choose a physical disk. `plan` captures observations and creates a typed, mode-600 plan. A complete evaluated storage diff requires consumer-provided checks; the CLI does not infer safe disk layout from generic Nix data. Applying an install plan *always* requires a new typed disk confirmation and re-probe. A failed or uncertain switch blocks further automatic updates until inspection.
+`moss` is the public entry point (generated executable `packages/cli/bin/moss`). The operator's mode-600 JSON declares pinned source, policy paths and the reviewed whole-disk candidate, not a second Nix machine definition. Omit `--config` on first use to create it interactively; subsequent plans can pass the existing file. `plan` captures observations and creates a separate typed, mode-600 plan. A complete evaluated storage diff requires consumer-provided checks; the CLI does not infer safe disk layout from generic Nix data. A sole detected disk is only proposed, not authorized for erasure. Applying an install plan *always* requires a new typed disk confirmation and re-probe. A failed or uncertain switch blocks further automatic updates until inspection.
 
 ## Internal protocol and future work
 
