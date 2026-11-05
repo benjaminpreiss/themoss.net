@@ -1,54 +1,94 @@
 # Configuration and plans
 
-> 🛑 **A plan is not permission to erase a disk.** It describes a proposed install or update; only a successful install produces a receipt. For the sequence of operator actions, see the [machine guide](../README.md).
+> 🛑 **A plan is a proposal, not permission to erase a disk.** Only a successful install creates a receipt. Follow the [machine guide](../README.md) for the operator workflow.
 
-## Where the files live
+## Where files live
 
-From anywhere in the **consumer Git checkout**, `moss machine plan root@HOST` uses its Git root:
+From the consumer Git checkout (or a subdirectory), `moss machine plan root@HOST` uses:
 
 ```text
 .moss/root@HOST/
-├── machine.json            # desired configuration, created on first use
-├── plans/<unique>.json     # immutable typed proposals
-├── latest                  # absolute path of last successfully written plan
-└── install-receipt.json    # created only after successful installation
+├── machine.json            # desired configuration
+├── plans/<unique>.json     # immutable install/update proposals
+├── latest -> /…/plans/<unique>.json  # symlink to the last published plan
+└── install-receipt.json    # written only after a successful install
 ```
 
-- **Protect the directory:** Add `.moss/` to the consumer repo's `.gitignore` and commit the ignore rule *before* planning. The CLI refuses an unignored or tracked `.moss/`. Directories must be mode `0700`; JSON and `latest` files are mode `0600`. These are operator-local files **inside the checkout but outside Git and off the target**. Back up the receipt separately.
-- **Keep plans distinct:** Each target has its own directory. `plan` never overwrites a configuration or a plan; it updates `latest` only after publishing a new plan. `apply` uses that reference if just one target has plans, or needs `--target root@HOST` when several do. It never picks the globally newest file by modification time.
-- **Override when necessary:** `plan --config FILE` and `plan --output FILE` accept absolute paths. `apply --plan FILE` (or the existing positional plan path) selects an explicit plan without changing `latest`. A custom output with the default config still updates its target's `latest`. Passing *both* config and output paths works outside a Git checkout, without default storage.
+- **Before first use:** Add `.moss/` to the consumer `.gitignore` and commit the ignore rule. The CLI refuses unignored or tracked `.moss/` files. Directories must be mode `0700`; config, plan and receipt JSON files must be mode `0600`. The `latest` symlink has no separate mode—it points at a mode-`0600` plan.
+- **One target at a time:** Each target has its own folder and `latest` symlink. `apply` uses it when the checkout has only one target with a plan; for several targets, use `apply --target root@HOST`. It never guesses from file modification times. Plans are never overwritten.
+- **Explicit paths:** `plan --config FILE` and `--output FILE` override defaults; `apply --plan FILE` (or a positional plan path) overrides `latest` without changing it. A custom output with the default config still updates that target's symlink. With *both* config and output paths, planning also works outside a Git checkout.
+
+These files are **operator-local, not committed or copied onto the target**. Back up the receipt separately.
 
 ## Desired configuration: `machine.json`
 
-On first use the CLI asks for source/policy choices, probes whole disks read-only, proposes the only disk or asks you to select from a numbered list, and asks you to review the JSON **before saving**. Subsequent plans reuse that file. You can also provide your own mode-`0600` JSON via `--config`; `version` must be `1` and unknown keys are rejected.
+First use prompts for choices, probes whole disks **read-only**, proposes the only disk or asks for a numbered selection, and shows the JSON for review before writing it. Later plans reuse this file. `--config` may supply a mode-`0600` file instead; only the listed keys are allowed.
 
-### Source and build inputs
+**Shape of the generated config** (illustrative JSONC: comments explain fields but are *not* accepted in an actual JSON file):
 
-- **`repo`, `revision`, `branch`:** Absolute local consumer checkout, full 40-character commit and pushed branch. Install requires that commit to be the exact pushed branch tip; updates follow only the *already selected* branch.
-- **`output`:** NixOS host output in the consumer flake.
-- **`machine`:** Absolute private directory containing mode-`0600`, credential-free `machine.nix` and, optionally, `facter.json`. These are **not** the JSON configuration. A configured `reportGenerator` may create `facter.json` during planning but cannot overwrite it.
+```jsonc
+{
+  "version": 1,                        // schema version; required
+  "repo": "/home/me/consumer",          // absolute consumer Git checkout
+  "revision": "<40-hex commit>",        // reviewed, pushed branch tip
+  "branch": "main",                     // pushed source branch
+  "output": "server",                   // NixOS host output in the flake
+  "machine": "/home/me/private-machine", // directory with mode-0600 machine.nix
+  "receipt": "/home/me/consumer/.moss/root@HOST/install-receipt.json", // receipt after install
+  "remoteCheckout": "/root/consumer",   // target's future checkout
+  "remoteMachine": "/root/private-machine", // target's private machine files
+  "remoteState": "/var/lib/themoss",    // target's root-owned selector/revision
 
-### Installation and target paths
+  // Optional keys—omit unused ones:
+  "disk": "/dev/vda",                   // reviewed whole-disk candidate (not erase consent)
+  "reportGenerator": "/home/me/report", // executable that creates facter.json
+  "preEraseCheck": "/home/me/check",    // evaluated install policy check
+  "recoveryDir": "/home/me/recovery"    // private files passed to installer, not Nix
+}
+```
 
-- **`disk` (optional):** Whole `/dev/…` path. Guided installation saves its reviewed selection here; `--disk` must agree if both are supplied. The field can remain in an update config, but **updates never use it to install**. Fresh disk size/model/serial are recorded in the *plan*, not the config.
-- **`receipt`:** Absolute off-host path for the mode-`0600` receipt created **only after a successful install**. When it exists, `plan` prepares an update, never a second install.
-- **`remoteCheckout`, `remoteMachine`, `remoteState`:** Absolute paths for the target checkout, private machine inputs and root-owned selector/revision state.
-
-### Optional consumer hooks
-
-- **`reportGenerator`:** Executable that produces a hardware report without replacing an existing one.
-- **`preEraseCheck`:** Executable that checks the evaluated install before erase.
-- **`recoveryDir`:** Separate private files for the installer; never staged into the Nix flake.
-
-The JSON contains **paths and choices, not secret contents**. Do not commit it. `machine.nix` and `facter.json` may enter the world-readable Nix store: neither may contain credentials.
+- **No secrets:** `machine.nix` and optional `facter.json` are separate from this JSON and may enter the world-readable Nix store. A configured report generator may create `facter.json` during planning but cannot overwrite it. Keep credentials in the separate recovery tree.
+- **Disk identity:** The config records the selected *path*, not size/model/serial; those come from a fresh probe in the install plan. `--disk` must agree with a configured disk. An existing receipt switches planning to **update**; the disk path may remain in the config but is never used to reinstall.
 
 ## Generated plan: `plans/<unique>.json`
 
-Every new mode-`0600` plan has **`version: 1`, `type`, `config`, `configSha256`, `target` and `origin`** (the checkout's Git remote). `config` is an absolute path, and its hash binds the configuration reviewed during planning. There are two recognized types:
+Each new, mode-`0600` plan has this **shared envelope** (the values below are placeholders):
 
-- **`install`:** `disk` names the proposed whole disk; `observed` holds the read-only target probe (target, architecture, boot mode, NIC/MAC and disk path/type/size/model/serial). `machineSha256` and `facterSha256` bind the private build inputs; the latter is empty when no report exists. No disk is erased by planning.
-- **`update`:** `expected` binds the target's current revision (`current`), root-owned branch selector (`selected`), reviewed branch tip (`next`) and machine-input hash (`machineSha256`). **There is no disk field or disk installer.**
+```jsonc
+{
+  "version": 1,
+  "type": "install",             // or "update"
+  "config": "/absolute/path/machine.json",
+  "configSha256": "<hash>",   // binds reviewed config bytes
+  "target": "root@HOST",
+  "origin": "<Git remote>"    // source checkout's origin
+  // ... type-specific keys below
+}
+```
 
-**Applying revalidates—never trusts the plan alone.** For an install, `apply` checks the config and input hashes, rebuilds, re-probes the disk, verifies the pushed tip and requires typed `ERASE /dev/DISK` consent before the installer. For an update it rechecks the recorded selector/revision and exact tip under the target lock. A changed file, moved tip, different disk or uncertain state means **stop and make a new plan**.
+**Install** adds these properties. `observed` is a snapshot of the **read-only target probe**; it does not authorize the disk installer:
 
-Discovery records, assembled install inputs and staged builds are temporary; they are not additional operator files to edit. `bootstrap` consumes the separate install receipt after you independently verify the new SSH host key.
+```jsonc
+"disk": "/dev/vda",
+"observed": {
+  "target": "root@HOST", "arch": "x86_64", "boot": "bios",
+  "nic": [ /* probed NICs */ ], "mac": "<address>",
+  "disk": { "path": "/dev/vda", "type": "disk", "size": 1000,
+            "model": "<model>", "serial": "<serial>" }
+},
+"machineSha256": "<hash>",
+"facterSha256": ""          // empty when no report exists
+```
+
+**Update** adds `expected` instead. **No disk field. No disk installer.**
+
+```jsonc
+"expected": {
+  "current": "<installed commit>",
+  "selected": "branch:main",  // root-owned branch selector
+  "next": "<reviewed tip>",
+  "machineSha256": "<hash>"
+}
+```
+
+**At apply:** Config/input hashes and target facts are rechecked. Install rebuilds, re-probes and requires typed `ERASE /dev/DISK` confirmation; update rechecks the selector and exact tip under the target lock. **Changed file, moved tip, different disk or uncertain state? Stop and make a new plan.** Discovery records and staged builds are temporary, not operator files to edit.

@@ -89,11 +89,13 @@ moss_new_plan_path() {
 }
 moss_publish_latest() {
   local dir=$1 plan=$2 tmp
-  [[ ! -L $dir/latest && ( ! -e $dir/latest || ( -f $dir/latest && $(stat -c %a "$dir/latest") == 600 ) ) ]] || fail 'unsafe latest-plan reference'
-  tmp=$(mktemp "$dir/.latest.XXXXXXXX")
-  printf '%s\n' "$plan" >"$tmp"
-  chmod 600 "$tmp"
-  mv -fT -- "$tmp" "$dir/latest"
+  [[ ! -e $dir/latest || -L $dir/latest ]] || fail 'latest must be a symlink'
+  # Create the replacement beside latest, then rename it atomically. The plan
+  # remains an immutable mode-600 file; the symlink itself has no access mode.
+  tmp=$(mktemp -d "$dir/.latest.XXXXXXXX")
+  ln -s -- "$plan" "$tmp/latest"
+  mv -fT -- "$tmp/latest" "$dir/latest"
+  rmdir -- "$tmp"
 }
 moss_latest_plan() {
   local requested=${1:-} dir store latest plan found='' count=0
@@ -111,9 +113,8 @@ moss_latest_plan() {
     dir=$found
   fi
   [[ -d $dir && ! -L $dir && $(stat -c %a "$dir") == 700 ]] || fail 'unsafe target plan directory'
-  private_file "$dir/latest"
-  IFS= read -r plan <"$dir/latest" || fail 'empty latest-plan reference'
-  [[ -n $plan ]] || fail 'empty latest-plan reference'
+  [[ -L $dir/latest ]] || fail 'latest must be a symlink to a plan'
+  plan=$(readlink -- "$dir/latest") || fail 'cannot read latest-plan symlink'
   private_file "$plan"
   [[ $(jq -er .target "$plan") == "$(basename "$dir")" ]] || fail 'latest plan target differs from directory'
   printf '%s\n' "$plan"

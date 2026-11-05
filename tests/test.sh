@@ -81,9 +81,9 @@ managed="$tmp/repo/.moss/root@example"
 # Defaults resolve from the Git ancestor, including when called in a subdirectory.
 (cd "$tmp/repo"; printf '%s\n' '' '' main test "$tmp/machine" '' '' '' '' '' '' '' y | \
   MOSS_TEST_INPUT=1 bash "$public" machine plan root@example >/dev/null)
-interactive_plan=$(<"$managed/latest")
+interactive_plan=$(readlink -- "$managed/latest")
 [[ $(stat -c %a "$managed/machine.json") == 600 && $(stat -c %a "$managed") == 700 && $(jq -r .type "$interactive_plan") == install ]]
-[[ $interactive_plan == "$managed/plans/"* && $(stat -c %a "$managed/latest") == 600 ]]
+[[ -L $managed/latest && $interactive_plan == "$managed/plans/"* && $(stat -c %a "$interactive_plan") == 600 ]]
 jq -e --arg repo "$tmp/repo" --arg rev "$first" --arg machine "$tmp/machine" \
   '.repo == $repo and .revision == $rev and .branch == "main" and .output == "test" and .machine == $machine and .disk == "/dev/vda"' "$managed/machine.json" >/dev/null
 ! grep -q ERASE "$tmp/log"
@@ -91,18 +91,18 @@ jq -e --arg repo "$tmp/repo" --arg rev "$first" --arg machine "$tmp/machine" \
 [[ ! -e $tmp/mismatch-plan.json ]]
 mkdir "$tmp/repo/subdir"
 (cd "$tmp/repo/subdir"; bash "$public" machine plan root@example >/dev/null)
-[[ $(<"$managed/latest") != "$interactive_plan" && $(jq -r .config "$(<"$managed/latest")") == "$managed/machine.json" ]]
+[[ $(readlink -- "$managed/latest") != "$interactive_plan" && $(jq -r .config "$(readlink -- "$managed/latest")") == "$managed/machine.json" ]]
 (cd "$tmp/repo"; bash "$public" machine plan root@example --output "$tmp/custom-plan.json" >/dev/null)
-[[ $(<"$managed/latest") == "$tmp/custom-plan.json" ]]
+[[ $(readlink -- "$managed/latest") == "$tmp/custom-plan.json" ]]
 (cd "$tmp/repo"; ! bash "$public" machine plan root@example --output "$tmp/custom-plan.json" >/dev/null 2>&1)
-[[ $(<"$managed/latest") == "$tmp/custom-plan.json" ]]
+[[ $(readlink -- "$managed/latest") == "$tmp/custom-plan.json" ]]
 mv "$managed/latest" "$managed/latest.saved"
-ln -s "$interactive_plan" "$managed/latest"
+ln -s /dev/null "$managed/latest"
 (cd "$tmp/repo"; ! bash "$public" machine apply --target root@example </dev/null >/dev/null 2>&1)
 rm "$managed/latest"; mv "$managed/latest.saved" "$managed/latest"
-chmod 644 "$managed/latest"
+chmod 644 "$tmp/custom-plan.json"
 (cd "$tmp/repo"; ! bash "$public" machine apply --target root@example </dev/null >/dev/null 2>&1)
-chmod 600 "$managed/latest"
+chmod 600 "$tmp/custom-plan.json"
 # A second target has a distinct config and must not silently replace the first.
 mkdir "$tmp/cancelled"
 (cd "$tmp/repo"; ! printf '%s\n' '' | MOSS_TEST_INPUT=1 bash "$public" machine plan root@cancelled --output "$tmp/cancelled/plan.json" >/dev/null 2>&1)
@@ -113,12 +113,16 @@ printf '%s\n' x86_64 bios '[{"dev":"eth0"}]' \
 printf '%s\n' '' '' main test "$tmp/machine" '' '' '' '' '' '' '' 2 y | \
   (cd "$tmp/repo"; MOSS_TEST_INPUT=1 bash "$public" machine plan root@other >/dev/null)
 other="$tmp/repo/.moss/root@other"
-[[ $(jq -r .disk "$other/machine.json") == /dev/vdb && $(jq -r .disk "$(<"$other/latest")") == /dev/vdb ]]
+[[ $(jq -r .disk "$other/machine.json") == /dev/vdb && $(jq -r .disk "$(readlink -- "$other/latest")") == /dev/vdb ]]
+mv "$managed/latest" "$managed/latest.saved"
+ln -s "$(readlink -- "$other/latest")" "$managed/latest"
+(cd "$tmp/repo"; ! bash "$public" machine apply --target root@example </dev/null >/dev/null 2>&1)
+rm "$managed/latest"; mv "$managed/latest.saved" "$managed/latest"
 (cd "$tmp/repo"; ! bash "$public" machine apply </dev/null >/dev/null 2>&1) # ambiguous targets
 (cd "$tmp/repo"; ! printf 'NO\n' | bash "$public" machine apply --target root@example >/dev/null 2>&1)
 (cd "$tmp/repo"; ! printf 'NO\n' | bash "$public" machine apply --plan "$interactive_plan" --target root@example >/dev/null 2>&1)
 (cd "$tmp/repo"; ! bash "$public" machine apply "$interactive_plan" --plan "$tmp/custom-plan.json" >/dev/null 2>&1)
-[[ $(<"$managed/latest") != "$interactive_plan" ]] # manual override never changes latest
+[[ $(readlink -- "$managed/latest") != "$interactive_plan" ]] # manual override never changes latest
 ! grep -q ERASE "$tmp/log"
 mkdir "$tmp/no-choice"
 (cd "$tmp/repo"; ! printf '%s\n' '' '' main test "$tmp/machine" '' '' '' '' '' '' '' 0 | \
@@ -399,7 +403,7 @@ mv "$tmp/new-config" "$config"; chmod 600 "$config"
 update_plan="$tmp/update-plan.json"
 bash "$public_cli" machine plan root@example --config "$config" --output "$update_plan"
 (cd "$tmp/repo"; bash "$public_cli" machine plan root@example --config "$config" >/dev/null)
-[[ $(jq -r .type "$(<"$managed/latest")") == update ]]
+[[ $(jq -r .type "$(readlink -- "$managed/latest")") == update ]]
 jq -e --arg next "$update_rev" '.type == "update" and .expected.next == $next' "$update_plan" >/dev/null
 # Tip movement after planning must not silently deploy the newer commit.
 git -C "$tmp/repo" commit --allow-empty -qm 'moved after review'
