@@ -7,9 +7,11 @@ The operator flow is **discover → install → verify the new SSH key → boots
 ## 1. Discover and review
 
 ```bash
-bash toolkit/deploy.sh discover root@HOST /dev/vda generated/record.json
-bash toolkit/deploy.sh preflight generated/record.json
+moss discover root@HOST /dev/vda generated/record.json
+moss preflight generated/record.json
 ```
+
+Build the operator CLI from the **same toolkit revision pinned by the consumer** with `nix build .#moss` (then use `./result/bin/moss` in place of `moss` below). Bootstrap and transition refuse an installed target binary with a different `moss` version; use the operator binary matching the candidate's installed toolkit. The consumer must enable `services.themossUpdate.enable` in its installed NixOS configuration, with `timer = false` until validated; this installs the target-side binary needed for bootstrap even when scheduled updates are off.
 
 **Before connecting:** verify the rescue environment's SSH host key through the provider console. SSH will not accept a new key automatically.
 
@@ -26,7 +28,7 @@ bash toolkit/deploy.sh preflight generated/record.json
 Commit and push the configuration you reviewed. Have **off-server backups and console recovery** ready, then run:
 
 ```bash
-bash toolkit/deploy.sh install generated/record.json /path/to/consumer FULL_COMMIT generated HOST_OUTPUT PUSHED_BRANCH generated/install-receipt.json
+moss install generated/record.json /path/to/consumer FULL_COMMIT generated HOST_OUTPUT PUSHED_BRANCH generated/install-receipt.json
 ```
 
 Install checks that the checkout is clean and `FULL_COMMIT` is the pushed branch head. It builds that commit, rechecks the target, and requires you to type `ERASE /dev/vda` before invoking the disk installer.
@@ -40,7 +42,7 @@ Install checks that the checkout is clean and `FULL_COMMIT` is the pushed branch
 The installed machine has a **new SSH host key**, different from the rescue environment's. Verify it through the provider console before updating `known_hosts`.
 
 ```bash
-bash toolkit/deploy.sh bootstrap generated/install-receipt.json /path/to/consumer generated /root/consumer /root/private-machine /var/lib/themoss
+moss bootstrap generated/install-receipt.json /path/to/consumer generated /root/consumer /root/private-machine /var/lib/themoss
 ```
 
 Bootstrap checks the machine files against the receipt, uploads them, checks out the **exact installed commit** on the target and records it as the initial known-good revision. Target files are root-only.

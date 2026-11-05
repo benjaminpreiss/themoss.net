@@ -1,0 +1,7 @@
+/.cargo-home/
+/.target/
+/target/
+/result
+/.tmp/
+/.test-tmp.*/
+/.consumer-test-tmp.*/

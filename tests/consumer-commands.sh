@@ -17,4 +17,6 @@ git -C "$tmp" add flake.nix
   output=$(nix build --no-link --print-out-paths .#nixosConfigurations.synthetic.config.system.build.toplevel)
   [[ $(<"$output") == synthetic-machine ]]
 )
-echo 'Synthetic consumer update/build passed'
+# The toolkit package must also build from its committed Rust lockfile.
+nix build --no-link --no-write-lock-file "$root#moss"
+echo 'Synthetic consumer update/build and moss package passed'

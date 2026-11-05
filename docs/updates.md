@@ -5,7 +5,7 @@
 ## Switch to a reviewed revision
 
 ```bash
-bash toolkit/deploy.sh update REPO BRANCH PRIVATE_MACHINE_DIR HOST_OUTPUT STATE_DIR
+moss update REPO BRANCH PRIVATE_MACHINE_DIR HOST_OUTPUT STATE_DIR
 ```
 
 The target needs a root-owned consumer checkout, private machine directory and state directory. Bootstrap creates `STATE_DIR/revision` from the install receipt.
@@ -25,7 +25,7 @@ For older hosts, initialize `STATE_DIR/revision` (mode 0600) to the commit **act
 Then run:
 
 ```bash
-bash toolkit/deploy.sh transition generated/install-receipt.json root@HOST /root/consumer main REVIEWED_MACHINE_DIR /root/private-machine HOST_OUTPUT /var/lib/themoss
+moss transition generated/install-receipt.json root@HOST /root/consumer main REVIEWED_MACHINE_DIR /root/private-machine HOST_OUTPUT /var/lib/themoss
 ```
 
 **Transition checks** the target's current revision and machine file against the receipt. It uploads the reviewed file, fetches `main`, checks ancestry, then builds and switches. Only after a successful switch does it save the new private file and revision on the target. The *consumer's* configuration decides whether a timer exists.

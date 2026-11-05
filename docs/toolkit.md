@@ -1,6 +1,6 @@
 # How the toolkit fits together
 
-**Your consumer repo describes the machine. This toolkit helps install and update it.** It does not supply a disk layout, an application, credentials or a release schedule.
+**Your consumer repo describes the machine. The `moss` CLI helps install and update it.** It does not supply a disk layout, an application, credentials or a release schedule.
 
 ```text
 consumer repo + reviewed machine facts
@@ -35,6 +35,7 @@ The Git checkout and the small state file live outside the Nix store. Bootstrap 
 
 ## Choose your next step
 
+- **Command reference?** See the clap-generated [CLI reference](cli.md) or run `moss --help` / `moss <command> --help`.
 - **New machine?** Follow [Deploy a machine](deployment.md).
 - **Existing machine or tested candidate?** Follow [Update a deployed machine](updates.md).
 - **Automating dependency PRs?** Read [App permissions](app-permissions.md). The consumer owns the workflow credentials; the server does not need them.

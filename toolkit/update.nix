@@ -1,6 +1,8 @@
 # Optional target-side updater. Import from a consumer flake pinned by flake.lock.
 { lib, pkgs, config, ... }:
-let cfg = config.services.themossUpdate;
+let
+  cfg = config.services.themossUpdate;
+  moss = pkgs.callPackage ./moss.nix { };
 in {
   options.services.themossUpdate = {
     enable = lib.mkEnableOption "reviewed Git NixOS updates (never Disko)";
@@ -13,13 +15,16 @@ in {
     interval = lib.mkOption { type = lib.types.str; default = "daily"; };
   };
   config = lib.mkIf cfg.enable {
+    # Install on candidate systems even while the timer is off: bootstrap and
+    # transition invoke this binary on the target over verified SSH.
+    environment.systemPackages = [ moss ];
     systemd.services.themoss-update = {
       description = "Build then switch reviewed NixOS revision";
-      path = with pkgs; [ git nix openssh nixos-rebuild jq gnutar util-linux coreutils findutils ];
+      path = with pkgs; [ git nix openssh nixos-rebuild gnutar coreutils findutils ];
       serviceConfig = {
         Type = "oneshot";
         User = "root";
-        ExecStart = "${pkgs.bash}/bin/bash ${./deploy.sh} update ${lib.escapeShellArg cfg.repository} ${lib.escapeShellArg cfg.branch} ${lib.escapeShellArg cfg.machine} ${lib.escapeShellArg cfg.host} ${lib.escapeShellArg cfg.state}";
+        ExecStart = "${moss}/bin/moss update ${lib.escapeShellArg cfg.repository} ${lib.escapeShellArg cfg.branch} ${lib.escapeShellArg cfg.machine} ${lib.escapeShellArg cfg.host} ${lib.escapeShellArg cfg.state}";
       };
     };
     systemd.timers.themoss-update = lib.mkIf cfg.timer {
