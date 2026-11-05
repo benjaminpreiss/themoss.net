@@ -23,7 +23,7 @@ jobs:
         env:
           BRANCH: ${{ github.ref_name }}
         run: |
-          git add -- packages/cli/bin/moss packages/cli/bin/machine/deploy.sh packages/cli/bin/machine/bootstrap/remote.sh packages/github-app-audit/bin/audit-app.sh docs/cli-spec docs/cli-reference.md
+          git add -- packages/cli/bin/moss packages/cli/bin/machine/deploy.sh packages/cli/bin/machine/bootstrap/remote.sh packages/github-app-audit/bin/audit-app.sh docs/spec docs/cli-reference.md
           if git diff --cached --quiet; then
             echo 'Generated artifacts are already current.'
             exit 0
