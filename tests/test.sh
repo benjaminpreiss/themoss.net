@@ -5,7 +5,16 @@
 # No real target, GitHub credentials, or destructive operation is used.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd -P)
-tmp=$(mktemp -d "$root/.test-tmp.XXXXXXXX"); trap 'rm -rf "$tmp"' EXIT
+# Keep all synthetic private paths under the one ignored operator directory.
+# Do not leave .moss behind if this fixture created it.
+created_store=0
+if [[ ! -e $root/.moss && ! -L $root/.moss ]]; then
+  mkdir -m 700 -- "$root/.moss"
+  created_store=1
+fi
+[[ -d $root/.moss && ! -L $root/.moss && $(stat -c %a "$root/.moss") == 700 ]] || { echo 'unsafe test .moss directory' >&2; exit 1; }
+tmp=$(mktemp -d "$root/.moss/.test-tmp.XXXXXXXX")
+trap 'rm -rf -- "$tmp"; if [[ $created_store == 1 ]]; then rmdir -- "$root/.moss"; fi' EXIT
 export TMPDIR="$tmp"
 mkdir -p "$tmp/bin" "$tmp/machine" "$tmp/state" "$tmp/repo"
 export PATH="$tmp/bin:$PATH" MOCK_LOG="$tmp/log" MOCK_PROBE="$tmp/probe" MOCK_FAIL='' MOCK_DIVERGE=''
