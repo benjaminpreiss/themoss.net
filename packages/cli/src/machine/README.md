@@ -8,7 +8,7 @@ Plan and apply reviewed NixOS installs and updates from your **operator computer
 
 The CLI needs `nix`, `nixos-anywhere`, `jq`, SSH and GNU tools. On Linux or macOS, use a reviewed toolkit checkout with flakes enabled and run `nix develop --no-write-lock-file .#operator`; it supplies runtime tools without argc. `bash tests/operator-smoke.sh` in that checkout exercises mocks, **not hardware**. On macOS you also need a Linux Nix builder (or a Linux VM) to build NixOS closures. Target-side updates require Linux.
 
-Keep configuration, plans and receipts private **off-host**. Inputs to Nix builds (`machine.nix` and `facter.json`) may become world-readable in the store: never put secrets in them. Keep SSH keys in a separate recovery tree.
+Keep configuration, plans and receipts private **off-host**. Inputs to Nix builds (`machine.nix` and `facter.json`) may become world-readable in the store: never put secrets in them. Keep SSH keys in a separate recovery tree. For the exact JSON properties and plan types, see [Configuration and plans](plan/README.md).
 
 ## Install a machine
 
